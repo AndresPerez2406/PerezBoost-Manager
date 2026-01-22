@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entorno Virtual
+.venv/
+env/
+venv/
+
+# Base de Datos (Seguridad de datos)
+perezboost.db
+backups/
+
+# VS Code
+.vscode/
