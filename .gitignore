@@ -2,15 +2,23 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.log
 
 # Entorno Virtual
 .venv/
 env/
 venv/
 
-# Base de Datos (Seguridad de datos)
+# Base de Datos
 perezboost.db
 backups/
 
-# VS Code
+# Ejecutables y Compilación
+build/
+dist/
+*.spec
+
+# Archivos de Sistema y Editor
 .vscode/
+.idea/
+Thumbs.db
