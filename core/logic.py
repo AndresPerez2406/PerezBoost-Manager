@@ -9,7 +9,7 @@ def normalizar_elo(entrada):
     if not entrada: return ""
     texto = entrada.strip().upper()
     mapeo = {
-        'D': 'DIAMANTE',
+        'D': 'Diamante',
         'P': 'Emerald/Plat',
         'E': 'Emerald/Plat',
         'EP': 'Emerald/Plat'
@@ -34,29 +34,23 @@ def calcular_pago_real(division, wr, ajuste_manual=0):
         resultado = cursor.fetchone()
         
         if not resultado:
-            return 0.0, 0.0, 0.0 # División no encontrada
+            return 0.0, 0.0, 0.0
             
         precio_cliente, margen_perez = resultado
         
-        # El pago base del booster es: lo que paga el cliente menos tu ganancia configurada
         pago_booster = precio_cliente - margen_perez
         
         # --- REGLAS DE RENDIMIENTO (HARDCODED POR POLÍTICA) ---
         
-        # 1. Bono por excelencia (WR >= 60%)
         if wr >= 60:
             pago_booster += 1.0
             precio_cliente += 1.0 
 
-        # 2. Penalización por bajo rendimiento (WR < 50%)
-        # Se le descuenta el 25% de su pago base
         if wr < 50:
             pago_booster -= (pago_booster * 0.25)
         
-        # 3. Aplicación de ajustes manuales (Casilla "Otros" en la GUI)
         pago_booster += ajuste_manual
         
-        # Aseguramos que el pago no sea negativo
         if pago_booster < 0: pago_booster = 0
 
         ganancia_final_empresa = precio_cliente - pago_booster
@@ -84,26 +78,30 @@ def extender_fecha(fecha_actual_str, dias_a_sumar):
     except:
         return None
 
-def calcular_tiempo_transcurrido(fecha_inicio_str):
+
+def calcular_tiempo_transcurrido(inicio_str):
+    """Calcula cuánto tiempo lleva activo un pedido (Solo Fecha)."""
     try:
-        inicio = datetime.strptime(fecha_inicio_str, "%Y-%m-%d %H:%M")
-        diff = datetime.now() - inicio
-        dias, horas = diff.days, diff.seconds // 3600
+
+        fecha_limpia = inicio_str.split(' ')[0]
+        inicio = datetime.strptime(fecha_limpia, "%Y-%m-%d")
+        ahora = datetime.now()
         
-        if dias == 0:
-            return f"🟢 Hoy ({horas}h)"
-        return f"⚠️ {dias}d {horas}h"
-    except: 
+        diferencia = ahora - inicio
+        dias = diferencia.days
+        
+        if dias == 0: return "Hoy"
+        if dias == 1: return "1 día"
+        return f"{dias} días"
+    except:
         return "N/A"
 
-def calcular_duracion_servicio(f_inicio_str, f_fin_str):
+def calcular_duracion_servicio(inicio_str, fin_str):
+    """Calcula duración total del servicio para el historial."""
     try:
-        inicio = datetime.strptime(f_inicio_str, "%Y-%m-%d %H:%M")
-        fin = datetime.strptime(f_fin_str, "%Y-%m-%d %H:%M")
-        diff = fin - inicio
-        dias, horas = diff.days, diff.seconds // 3600
-        
-        if dias == 0: return f"{horas}h"
-        return f"{dias}d {horas}h"
+        d1 = datetime.strptime(inicio_str.split(' ')[0], "%Y-%m-%d")
+        d2 = datetime.strptime(fin_str.split(' ')[0], "%Y-%m-%d")
+        diff = (d2 - d1).days
+        return f"{diff} días" if diff > 0 else "Mismo día"
     except:
         return "N/A"

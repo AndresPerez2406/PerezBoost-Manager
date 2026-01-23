@@ -1,6 +1,5 @@
 import os
 from core.database import inicializar_db, realizar_backup_db
-# Importamos los MENÚS de los módulos
 from modules.boosters import menu_boosters_cli
 from modules.inventario import menu_inventario_cli
 from modules.pedidos import menu_pedidos_cli, obtener_historial_visual
@@ -25,9 +24,9 @@ def menu_principal():
         op = input(">>> Selecciona: ")
         
         if op == "1":
-            menu_boosters_cli() # Menú interactivo completo
+            menu_boosters_cli()
         elif op == "2":
-            menu_inventario_cli() # Menú interactivo completo
+            menu_inventario_cli()
         elif op == "3":
             limpiar()
             menu_pedidos_cli()
@@ -52,22 +51,17 @@ def vista_balance_cli():
     if not datos:
         print("\n" + "No hay registros en el historial.".center(94))
     else:
-        # Encabezados (Iguales a los del GUI)
         header = f"{'#':<3} | {'BOOSTER':<12} | {'ELO/CUENTA':<15} | {'PAGO B.':<10} | {'PEREZ':<10} | {'TOTAL':<10} | {'DURACIÓN'}"
         print(header)
         print("-" * 94)
 
-        # Filas de datos
         for d in datos:
-            # d = (indice, booster, elo, pago_b, ganancia_m, total, inicio, fin, duracion)
             print(f"{d[0]:<3} | {d[1]:<12} | {d[2]:<15} | {d[3]:<10} | {d[4]:<10} | {d[5]:<10} | {d[8]}")
 
-    # --- BARRA DE TOTAL (Imitando al GUI) ---
     print("-" * 94)
     print("      TOTAL CALCULADO ".center(94, " "))
     print("-" * 94)
     
-    # Formateamos el resumen igual que la barra ancha de la interfaz gráfica
     resumen = f"Boosters: ${totales['booster']:.2f}  |  Ganancia Perez: ${totales['empresa']:.2f}  |  Ingreso Total: ${totales['cliente']:.2f}"
     print(resumen.center(94))
     print("=" * 94)

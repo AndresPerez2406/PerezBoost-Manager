@@ -82,6 +82,13 @@ def eliminar_booster(id_booster):
     cursor.execute("DELETE FROM boosters WHERE id = ?", (id_booster,))
     exito = cursor.rowcount > 0
     conn.commit(); conn.close(); return exito
+    
+def actualizar_booster_db(id_booster, nombre_nuevo):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE boosters SET nombre = ? WHERE id = ?", (nombre_nuevo, id_booster))
+    conn.commit()
+    conn.close()
 
 # ==========================================
 # SECCIÓN 2: GESTIÓN DE INVENTARIO
@@ -105,6 +112,17 @@ def eliminar_cuenta(id_cuenta):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute("DELETE FROM inventario WHERE id = ?", (id_cuenta,))
     exito = cursor.rowcount > 0; conn.commit(); conn.close(); return exito
+
+
+def actualizar_inventario_db(id_inv, datos):
+    conn = conectar()
+    cursor = conn.cursor()
+    columnas = ", ".join([f"{k} = ?" for k in datos.keys()])
+    valores = list(datos.values())
+    valores.append(id_inv)
+    cursor.execute(f"UPDATE inventario SET {columnas} WHERE id = ?", valores)
+    conn.commit()
+    conn.close()
 
 # ==========================================
 # SECCIÓN 3: GESTIÓN DE PEDIDOS
@@ -141,10 +159,45 @@ def registrar_abandono_db(id_pedido, elo_dejado, wr_dejado):
         cursor.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?) ON CONFLICT(user_pass) DO UPDATE SET elo_tipo=?, descripcion=?", (u_p, elo_orig, nota, elo_orig, nota))
         cursor.execute("UPDATE pedidos SET estado='Abandonado', elo_final=?, wr=?, fecha_fin_real=? WHERE id=?", (elo_dejado, wr_dejado, fecha_fin, id_pedido))
         conn.commit(); exito = True
-    finally: conn.close(); 
+    finally: conn.close();
     
     return exito
 
+def actualizar_pedido_db(id_pedido, datos):
+    """
+    datos es un diccionario con las columnas a actualizar.
+    Ej: {'booster_nombre': 'Faker', 'pago_cliente': 50.0}
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+    
+    # Construimos la consulta dinámicamente
+    columnas = ", ".join([f"{k} = ?" for k in datos.keys()])
+    valores = list(datos.values())
+    valores.append(id_pedido)
+    
+    query = f"UPDATE pedidos SET {columnas} WHERE id = ?"
+    cursor.execute(query, valores)
+    
+    conn.commit()
+    conn.close()
+    
+def obtener_resumen_alertas():
+    conn = conectar()
+    cursor = conn.cursor()
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    
+    # 1. Pedidos Vencidos (Urgentes)
+    cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite <= ?", (hoy,))
+    vencidos = cursor.fetchone()[0]
+    
+    # 2. Stock Bajo (Menos de 3 cuentas)
+    cursor.execute("SELECT COUNT(*) FROM inventario")
+    stock = cursor.fetchone()[0]
+    
+    conn.close()
+    return vencidos, stock
+    
 # ==========================================
 # SECCIÓN 4: FINANZAS E HISTORIAL
 # ==========================================
@@ -160,11 +213,20 @@ def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajust
     except: return False
     finally: conn.close()
 
-def obtener_historial():
-    conn = conectar(); cursor = conn.cursor()
-    cursor.execute("""SELECT id, booster_nombre, elo_final, wr, pago_booster, ganancia_empresa, 
-                      pago_cliente, fecha_inicio, fecha_fin_real FROM pedidos WHERE estado = 'Terminado'""")
-    data = cursor.fetchall(); conn.close(); return data
+def obtener_historial_completo():
+    conn = conectar()
+    cursor = conn.cursor()
+    # 11 columnas (del 0 al 10)
+    cursor.execute("""
+        SELECT id, booster_nombre, elo_final, wr, pago_booster, ganancia_empresa, 
+               pago_cliente, fecha_inicio, fecha_fin_real, user_pass, estado 
+        FROM pedidos 
+        WHERE estado IN ('Terminado', 'Abandonado') 
+        ORDER BY DATE(fecha_fin_real) ASC
+    """)
+    data = cursor.fetchall()
+    conn.close()
+    return data
 
 # ==========================================
 # SECCIÓN 5: CONFIGURACIÓN DE TARIFAS
@@ -201,3 +263,82 @@ def eliminar_precio_db(div):
         conn.commit(); return exito
     except: return False
     finally: conn.close()
+
+# ==========================================
+# SECCIÓN 6: DASHBOARD Y REPORTES (CORREGIDA)
+# ==========================================
+
+def obtener_conteo_stock():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM inventario")
+        res = cursor.fetchone()
+        return res[0] if res else 0
+    except Exception as e:
+        print(f"Error conteo stock: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def obtener_conteo_pedidos_activos():
+    conn = conectar()
+    cursor = conn.cursor()
+    # Contamos todo lo que NO esté finalizado ni abandonado
+    cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso'")
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else 0
+
+def obtener_ganancia_proyectada():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        # Traemos los elos de pedidos activos y la tabla de precios
+        cursor.execute("SELECT elo_inicial FROM pedidos WHERE estado = 'En progreso'")
+        pedidos = cursor.fetchall()
+        
+        cursor.execute("SELECT division, margen_perez FROM config_precios")
+        tarifas = {row[0].upper(): row[1] for row in cursor.fetchall()}
+        
+        total = 0.0
+        for (elo,) in pedidos:
+            elo_clean = str(elo).upper().strip()
+            # Si el elo del pedido coincide con una tarifa, sumamos
+            if elo_clean in tarifas:
+                total += tarifas[elo_clean]
+            else:
+                # Si es un nombre largo (ej: "DIAMANTE"), buscamos la primera tarifa 'D'
+                for div, margen in tarifas.items():
+                    if div.startswith(elo_clean[0]):
+                        total += margen
+                        break
+        return float(total)
+    except:
+        return 0.0
+    finally:
+        conn.close()
+
+def obtener_conteo_emergencias():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        from datetime import datetime, timedelta
+        
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        manana = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        # 1. Contamos Críticos (Hoy o ya pasados)
+        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite <= ?", (hoy,))
+        criticos = cursor.fetchone()[0] or 0
+        
+        # 2. Contamos Próximos (Vencen mañana)
+        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite = ?", (manana,))
+        proximos = cursor.fetchone()[0] or 0
+        
+        return criticos, proximos
+    except Exception as e:
+        print(f"Error en conteo de emergencias: {e}")
+        return 0, 0
+    finally:
+        conn.close()

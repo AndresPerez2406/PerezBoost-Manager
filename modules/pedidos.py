@@ -4,8 +4,7 @@ MÓDULO: GESTIÓN DE PEDIDOS (DURANTE EL SERVICIO)
 Maneja la lógica de visualización y cierre de trabajos activos.
 """
 from core.database import (
-    obtener_pedidos_activos, 
-    obtener_historial, 
+    obtener_historial_completo, 
     conectar, 
     obtener_boosters_db as db_get_boosters
 )
@@ -16,48 +15,59 @@ from core.logic import calcular_tiempo_transcurrido, calcular_duracion_servicio
 # ======================================================
 
 def obtener_pedidos_visual():
-    """
-    Procesa los pedidos activos para mostrarlos en tablas (GUI/CMD).
-    Calcula el tiempo transcurrido usando core.logic.
-    """
+    from core.database import obtener_pedidos_activos
+    from core.logic import calcular_tiempo_transcurrido
     datos = obtener_pedidos_activos()
     procesados = []
-    
-    for p in datos:
-        # p = (id, booster_nombre, elo_inicial, user_pass, fecha_inicio, fecha_limite)
-        tiempo = calcular_tiempo_transcurrido(p[4])
+    for i, p in enumerate(datos, start=1):
         
-        # Estructura intermedia: (dummy_index, id_real, booster, cuenta, inicio, fin, tiempo)
-        procesados.append((0, p[0], p[1], p[3], p[4], p[5], tiempo))
+        f_ini = p[4].split(' ')[0]
+        f_lim = p[5].split(' ')[0]
+        tiempo = calcular_tiempo_transcurrido(f_ini)
         
-    # Retorna: (Índice Visual, ID_Real, Booster, Cuenta, Inicio, Fin, Tiempo)
-    return [(i, *p[1:]) for i, p in enumerate(procesados, start=1)]
+        procesados.append((i, p[0], p[1], p[3], f_ini, f_lim, tiempo))
+    return procesados
 
 def obtener_historial_visual():
-    """
-    Procesa el historial terminado y calcula totales financieros.
-    """
-    datos = obtener_historial()
+    from core.database import obtener_historial_completo
+    from datetime import datetime
+    datos = obtener_historial_completo()
     procesados = []
-    t = {"booster": 0.0, "empresa": 0.0, "cliente": 0.0}
     
     for i, h in enumerate(datos, start=1):
-        # h = (id, b_nom, elo_f, wr, pago_b, gan_m, total, f_ini, f_fin)
-        duracion = calcular_duracion_servicio(h[7], h[8])
+        # h: [7]inicio, [8]fin_real, [10]estado
+        estado = str(h[10]).upper() if h[10] else "TERMINADO"
+        icon = "✅" if estado == "TERMINADO" else "❌"
+        usuario = h[9].split(':')[0] if h[9] else "N/A"
         
-        # Formato para tabla: (#, Booster, Elo, PagoB, Ganancia, Total, Inicio, Fin, Duración)
-        procesados.append((i, h[1], h[2], f"${h[4]}", f"${h[5]}", f"${h[6]}", h[7], h[8], duracion))
+        # --- CÁLCULO DE DÍAS ---
+        try:
+            d_ini = datetime.strptime(str(h[7]).split(' ')[0], "%Y-%m-%d")
+            d_fin = datetime.strptime(str(h[8]).split(' ')[0], "%Y-%m-%d")
+            diferencia = (d_fin - d_ini).days
+            txt_duracion = f"{diferencia} días" if diferencia > 0 else "Mismo día"
+        except:
+            txt_duracion = "N/A"
+
+        # [8] será la duración y añadimos [9] como el estado oculto para la suma
+        fila = (
+            i,                          # [0]
+            h[1],                       # [1]
+            f"{icon} {usuario} ({h[2]})",# [2]
+            f"${(h[4] or 0.0):.2f}",    # [3]
+            f"${(h[5] or 0.0):.2f}",    # [4]
+            f"${(h[6] or 0.0):.2f}",    # [5]
+            str(h[7]).split(' ')[0],    # [6]
+            str(h[8]).split(' ')[0],    # [7]
+            txt_duracion,               # [8] LO QUE SE VE
+            estado                      # [9] OCULTO (para la lógica)
+        )
+        procesados.append(fila)
         
-        # Sumar totales (validando que no sean None)
-        t["booster"] += h[4] if h[4] else 0
-        t["empresa"] += h[5] if h[5] else 0
-        t["cliente"] += h[6] if h[6] else 0
-        
-    # Retornamos la lista y una tupla con los totales
-    return procesados, (t["booster"], t["empresa"], t["cliente"])
+    return procesados, None
 
 # ======================================================
-#  INTERFAZ CMD (TEXTO)
+#  INTERFAZ CMD
 # ======================================================
 
 def menu_pedidos_cli():
@@ -66,7 +76,6 @@ def menu_pedidos_cli():
     if not pedidos:
         print("No hay pedidos activos.")
     else:
-        # v=visual_id, r=real_id, b=booster, c=cuenta, ini=inicio, lim=limite, t=tiempo
         print(f"{'#':<3} | {'BOOSTER':<12} | {'CUENTA':<18} | {'TIEMPO'}")
         print("-" * 50)
         for v, r, b, c, ini, lim, t in pedidos:
@@ -74,12 +83,10 @@ def menu_pedidos_cli():
     input("\nPresiona Enter para volver...")
 
 # ======================================================
-#  FUNCIONES AUXILIARES OBLIGATORIAS PARA LA GUI
-#  (Sin estas, el botón 'Nuevo Pedido' da error)
+#  FUNCIONES AUXILIARES PARA FORMULARIOS GUI
 # ======================================================
 
 def obtener_elos_en_stock():
-    """Retorna lista de Elos disponibles (ej: ['D1', 'P4']) para el combobox."""
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT elo_tipo FROM inventario ORDER BY elo_tipo")
@@ -88,7 +95,6 @@ def obtener_elos_en_stock():
     return [r[0] for r in resultados] if resultados else []
 
 def obtener_cuentas_filtradas_datos(elo_seleccionado):
-    """Retorna las cuentas específicas de un Elo para llenar el segundo combobox."""
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("SELECT id, user_pass, descripcion FROM inventario WHERE elo_tipo = ?", (elo_seleccionado,))
@@ -97,5 +103,4 @@ def obtener_cuentas_filtradas_datos(elo_seleccionado):
     return data
 
 def obtener_boosters_db():
-    """Wrapper para mantener compatibilidad de nombres en la importación."""
     return db_get_boosters()
