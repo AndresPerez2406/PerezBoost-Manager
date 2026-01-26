@@ -171,7 +171,7 @@ def actualizar_pedido_db(id_pedido, datos):
     conn = conectar()
     cursor = conn.cursor()
     
-    # Construimos la consulta dinámicamente
+    
     columnas = ", ".join([f"{k} = ?" for k in datos.keys()])
     valores = list(datos.values())
     valores.append(id_pedido)
@@ -187,11 +187,11 @@ def obtener_resumen_alertas():
     cursor = conn.cursor()
     hoy = datetime.now().strftime("%Y-%m-%d")
     
-    # 1. Pedidos Vencidos (Urgentes)
+    
     cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite <= ?", (hoy,))
     vencidos = cursor.fetchone()[0]
     
-    # 2. Stock Bajo (Menos de 3 cuentas)
+  
     cursor.execute("SELECT COUNT(*) FROM inventario")
     stock = cursor.fetchone()[0]
     
@@ -216,7 +216,7 @@ def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajust
 def obtener_historial_completo():
     conn = conectar()
     cursor = conn.cursor()
-    # 11 columnas (del 0 al 10)
+
     cursor.execute("""
         SELECT id, booster_nombre, elo_final, wr, pago_booster, ganancia_empresa, 
                pago_cliente, fecha_inicio, fecha_fin_real, user_pass, estado 
@@ -284,7 +284,7 @@ def obtener_conteo_stock():
 def obtener_conteo_pedidos_activos():
     conn = conectar()
     cursor = conn.cursor()
-    # Contamos todo lo que NO esté finalizado ni abandonado
+ 
     cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso'")
     res = cursor.fetchone()
     conn.close()
@@ -294,7 +294,7 @@ def obtener_ganancia_proyectada():
     conn = conectar()
     try:
         cursor = conn.cursor()
-        # Traemos los elos de pedidos activos y la tabla de precios
+        
         cursor.execute("SELECT elo_inicial FROM pedidos WHERE estado = 'En progreso'")
         pedidos = cursor.fetchall()
         
@@ -304,11 +304,11 @@ def obtener_ganancia_proyectada():
         total = 0.0
         for (elo,) in pedidos:
             elo_clean = str(elo).upper().strip()
-            # Si el elo del pedido coincide con una tarifa, sumamos
+        
             if elo_clean in tarifas:
                 total += tarifas[elo_clean]
             else:
-                # Si es un nombre largo (ej: "DIAMANTE"), buscamos la primera tarifa 'D'
+                
                 for div, margen in tarifas.items():
                     if div.startswith(elo_clean[0]):
                         total += margen
@@ -319,26 +319,27 @@ def obtener_ganancia_proyectada():
     finally:
         conn.close()
 
-def obtener_conteo_emergencias():
+def obtener_datos_reporte_avanzado(mes=None, booster_id=None):
     conn = conectar()
-    try:
-        cursor = conn.cursor()
-        from datetime import datetime, timedelta
-        
-        hoy = datetime.now().strftime("%Y-%m-%d")
-        manana = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        # 1. Contamos Críticos (Hoy o ya pasados)
-        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite <= ?", (hoy,))
-        criticos = cursor.fetchone()[0] or 0
-        
-        # 2. Contamos Próximos (Vencen mañana)
-        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso' AND fecha_limite = ?", (manana,))
-        proximos = cursor.fetchone()[0] or 0
-        
-        return criticos, proximos
-    except Exception as e:
-        print(f"Error en conteo de emergencias: {e}")
-        return 0, 0
-    finally:
-        conn.close()
+    cursor = conn.cursor()
+    
+    query = "SELECT * FROM pedidos WHERE estado IN ('Terminado', 'Abandonado')"
+    params = []
+
+    if mes and mes != "Todos":
+
+        query += " AND strftime('%m', fecha_fin_real) = ?"
+        meses_map = {"Enero":"01","Febrero":"02","Marzo":"03","Abril":"04","Mayo":"05","Junio":"06",
+                     "Julio":"07","Agosto":"08","Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12"}
+        params.append(meses_map[mes])
+
+    if booster_id and booster_id != "Todos":
+        query += " AND booster_nombre = ?"
+        params.append(booster_id)
+
+    query += " ORDER BY fecha_fin_real DESC"
+    
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows

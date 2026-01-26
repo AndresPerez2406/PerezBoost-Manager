@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from core.database import conectar
 
 # ==========================================
 # SECCIÓN 1: NORMALIZACIÓN
@@ -22,8 +23,6 @@ def normalizar_elo(entrada):
 
 def calcular_pago_real(division, wr, ajuste_manual=0):
     
-    from core.database import conectar
-    
     division = division.upper().strip()
     conn = conectar()
     cursor = conn.cursor()
@@ -40,7 +39,6 @@ def calcular_pago_real(division, wr, ajuste_manual=0):
         
         pago_booster = precio_cliente - margen_perez
         
-        # --- REGLAS DE RENDIMIENTO (HARDCODED POR POLÍTICA) ---
         
         if wr >= 60:
             pago_booster += 1.0
@@ -80,7 +78,6 @@ def extender_fecha(fecha_actual_str, dias_a_sumar):
 
 
 def calcular_tiempo_transcurrido(inicio_str):
-    """Calcula cuánto tiempo lleva activo un pedido (Solo Fecha)."""
     try:
 
         fecha_limpia = inicio_str.split(' ')[0]
@@ -97,7 +94,6 @@ def calcular_tiempo_transcurrido(inicio_str):
         return "N/A"
 
 def calcular_duracion_servicio(inicio_str, fin_str):
-    """Calcula duración total del servicio para el historial."""
     try:
         d1 = datetime.strptime(inicio_str.split(' ')[0], "%Y-%m-%d")
         d2 = datetime.strptime(fin_str.split(' ')[0], "%Y-%m-%d")

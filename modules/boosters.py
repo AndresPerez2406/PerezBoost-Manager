@@ -1,10 +1,3 @@
-"""
-MÓDULO: GESTIÓN DE BOOSTERS (SOPORTE DUAL GUI/CMD)
--------------------------------------------------
-Este módulo centraliza la lógica del staff. Las funciones de 'logica' 
-devuelven datos, mientras que las de 'cli' manejan la interacción de consola.
-"""
-
 from core.database import agregar_booster, obtener_boosters_db, eliminar_booster
 
 # =========================================================================

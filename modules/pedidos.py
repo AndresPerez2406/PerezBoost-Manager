@@ -1,22 +1,17 @@
-"""
-MÓDULO: GESTIÓN DE PEDIDOS (DURANTE EL SERVICIO)
------------------------------------------------
-Maneja la lógica de visualización y cierre de trabajos activos.
-"""
 from core.database import (
     obtener_historial_completo, 
     conectar, 
-    obtener_boosters_db as db_get_boosters
+    obtener_boosters_db as db_get_boosters,
+    obtener_pedidos_activos
 )
 from core.logic import calcular_tiempo_transcurrido, calcular_duracion_servicio
-
+from datetime import datetime
 # ======================================================
 #  PUENTE PARA GUI Y LÓGICA VISUAL
 # ======================================================
 
 def obtener_pedidos_visual():
-    from core.database import obtener_pedidos_activos
-    from core.logic import calcular_tiempo_transcurrido
+
     datos = obtener_pedidos_activos()
     procesados = []
     for i, p in enumerate(datos, start=1):
@@ -29,18 +24,16 @@ def obtener_pedidos_visual():
     return procesados
 
 def obtener_historial_visual():
-    from core.database import obtener_historial_completo
-    from datetime import datetime
+    
     datos = obtener_historial_completo()
     procesados = []
     
     for i, h in enumerate(datos, start=1):
-        # h: [7]inicio, [8]fin_real, [10]estado
+
         estado = str(h[10]).upper() if h[10] else "TERMINADO"
         icon = "✅" if estado == "TERMINADO" else "❌"
         usuario = h[9].split(':')[0] if h[9] else "N/A"
         
-        # --- CÁLCULO DE DÍAS ---
         try:
             d_ini = datetime.strptime(str(h[7]).split(' ')[0], "%Y-%m-%d")
             d_fin = datetime.strptime(str(h[8]).split(' ')[0], "%Y-%m-%d")
@@ -49,18 +42,17 @@ def obtener_historial_visual():
         except:
             txt_duracion = "N/A"
 
-        # [8] será la duración y añadimos [9] como el estado oculto para la suma
         fila = (
-            i,                          # [0]
-            h[1],                       # [1]
-            f"{icon} {usuario} ({h[2]})",# [2]
-            f"${(h[4] or 0.0):.2f}",    # [3]
-            f"${(h[5] or 0.0):.2f}",    # [4]
-            f"${(h[6] or 0.0):.2f}",    # [5]
-            str(h[7]).split(' ')[0],    # [6]
-            str(h[8]).split(' ')[0],    # [7]
-            txt_duracion,               # [8] LO QUE SE VE
-            estado                      # [9] OCULTO (para la lógica)
+            i,                          
+            h[1],                       
+            f"{icon} {usuario} ({h[2]})",
+            f"${(h[4] or 0.0):.2f}",    
+            f"${(h[5] or 0.0):.2f}",    
+            f"${(h[6] or 0.0):.2f}",    
+            str(h[7]).split(' ')[0],    
+            str(h[8]).split(' ')[0],    
+            txt_duracion,               
+            estado                      
         )
         procesados.append(fila)
         

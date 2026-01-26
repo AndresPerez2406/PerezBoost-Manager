@@ -1,10 +1,3 @@
-"""
-MÓDULO: GESTIÓN DE INVENTARIO (SOPORTE DUAL GUI/CMD)
----------------------------------------------------
-Centraliza la lógica de stock de cuentas. Permite registros
-individuales, cargas masivas y preparación de datos para tablas.
-"""
-
 from core.database import agregar_cuenta, obtener_inventario, eliminar_cuenta
 
 # =========================================================================
