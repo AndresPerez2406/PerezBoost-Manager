@@ -14,7 +14,7 @@ def conectar():
 def realizar_backup_db():
     archivo_db = "perezboost.db"
     carpeta_backups = "backups"
-    
+
     if not os.path.exists(archivo_db): return 
     if not os.path.exists(carpeta_backups): os.makedirs(carpeta_backups)
 
@@ -47,9 +47,9 @@ def inicializar_db():
             estado TEXT DEFAULT 'En progreso', elo_final TEXT, wr REAL, fecha_fin_real TEXT,
             pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL, ajuste_valor REAL DEFAULT 0, ajuste_motivo TEXT,
             FOREIGN KEY (booster_id) REFERENCES boosters (id))''')
-    
+    cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL)')
-
+    cursor.execute('CREATE TABLE IF NOT EXISTS sistema_config (clave TEXT PRIMARY KEY, valor TEXT)')
     cursor.execute("SELECT COUNT(*) FROM config_precios")
     if cursor.fetchone()[0] == 0:
         precios = [('D1', 45.0, 10.0), ('D2', 35.0, 10.0), ('D3', 30.0, 10.0), ('D4', 30.0, 10.0),
@@ -268,6 +268,28 @@ def eliminar_precio_db(div):
 # SECCIÓN 6: DASHBOARD Y REPORTES (CORREGIDA)
 # ==========================================
 
+def obtener_kpis_mensuales():
+    """Devuelve (Ganancia Real del Mes, Cantidad Terminados Mes)"""
+    conn = conectar()
+    cursor = conn.cursor()
+    mes_actual = datetime.now().strftime("%Y-%m")
+    
+    # 1. Ganancia Real (Caja cerrada este mes)
+    cursor.execute("""
+        SELECT SUM(ganancia_empresa), COUNT(*) 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND strftime('%Y-%m', fecha_fin_real) = ?
+    """, (mes_actual,))
+    
+    datos = cursor.fetchone()
+    conn.close()
+    
+    ganancia = datos[0] if datos[0] else 0.0
+    cantidad = datos[1] if datos[1] else 0
+    
+    return ganancia, cantidad
+
 def obtener_conteo_stock():
     conn = conectar()
     try:
@@ -343,3 +365,51 @@ def obtener_datos_reporte_avanzado(mes=None, booster_id=None):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+# ==========================================
+# SECCIÓN 7: CONFIGURACIÓN DEL SISTEMA (DISCORD)
+# ==========================================
+
+def guardar_config_sistema(clave, valor):
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT OR REPLACE INTO sistema_config (clave, valor) VALUES (?, ?)", (clave, valor))
+        conn.commit()
+        return True
+    except: return False
+    finally: conn.close()
+
+def obtener_config_sistema(clave):
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT valor FROM sistema_config WHERE clave = ?", (clave,))
+        res = cursor.fetchone()
+        return res[0] if res else ""
+    finally: conn.close()
+
+# ==========================================
+# SISTEMA DE AUDITORÍA (LOGS)
+# ==========================================
+
+def registrar_log(evento, detalles):
+    """Guarda un evento en la caja negra del sistema."""
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("INSERT INTO logs_auditoria (fecha, evento, detalles) VALUES (?, ?, ?)", (fecha, evento, detalles))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error guardando log: {e}")
+
+def obtener_logs_db(limite=50):
+    """Recupera los últimos movimientos."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT fecha, evento, detalles FROM logs_auditoria ORDER BY id DESC LIMIT ?", (limite,))
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
