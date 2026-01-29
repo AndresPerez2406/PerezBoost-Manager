@@ -35,7 +35,6 @@ def gestionar_limite_backups(ruta_carpeta, limite=10):
         os.remove(archivos.pop(0))
 
 def inicializar_db():
-
     conn = conectar()
     cursor = conn.cursor()
 
@@ -48,14 +47,22 @@ def inicializar_db():
             pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL, ajuste_valor REAL DEFAULT 0, ajuste_motivo TEXT,
             FOREIGN KEY (booster_id) REFERENCES boosters (id))''')
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
-    cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL)')
+    
+    # MODIFICADO: Agregada columna puntos
+    cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')
+    
     cursor.execute('CREATE TABLE IF NOT EXISTS sistema_config (clave TEXT PRIMARY KEY, valor TEXT)')
+    
+    # Verificamos si hay que insertar los precios iniciales con sus puntos
     cursor.execute("SELECT COUNT(*) FROM config_precios")
     if cursor.fetchone()[0] == 0:
-        precios = [('D1', 45.0, 10.0), ('D2', 35.0, 10.0), ('D3', 30.0, 10.0), ('D4', 30.0, 10.0),
-                   ('E1', 18.0, 5.0), ('E2', 15.0, 5.0), ('E3', 12.0, 5.0), ('E4', 12.0, 5.0),
-                   ('P1', 10.0, 5.0), ('P2', 10.0, 5.0), ('P3', 8.0, 5.0), ('P4', 8.0, 5.0)]
-        cursor.executemany("INSERT INTO config_precios VALUES (?, ?, ?)", precios)
+        # Formato: (División, Precio Cliente, Margen Empresa, PUNTOS)
+        precios = [
+            ('D1', 45.0, 10.0, 45), ('D2', 35.0, 10.0, 40), ('D3', 30.0, 10.0, 35), ('D4', 30.0, 10.0, 30),
+            ('E1', 18.0, 5.0, 21),  ('E2', 15.0, 5.0, 18),  ('E3', 12.0, 5.0, 15),  ('E4', 12.0, 5.0, 12),
+            ('P1', 10.0, 5.0, 8),   ('P2', 10.0, 5.0, 6),   ('P3', 8.0, 5.0, 4),    ('P4', 8.0, 5.0, 2)
+        ]
+        cursor.executemany("INSERT INTO config_precios VALUES (?, ?, ?, ?)", precios)
     
     conn.commit()
     conn.close()
@@ -233,9 +240,12 @@ def obtener_historial_completo():
 # ==========================================
 
 def obtener_config_precios():
-    conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT division, precio_cliente, margen_perez FROM config_precios ORDER BY division ASC")
-    res = cursor.fetchall(); conn.close(); return res
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT division, precio_cliente, margen_perez, puntos FROM config_precios ORDER BY puntos DESC")
+    res = cursor.fetchall()
+    conn.close()
+    return res
 
 def actualizar_precio_db(div, p_cli, m_per):
     conn = conectar(); cursor = conn.cursor()
@@ -413,3 +423,68 @@ def obtener_logs_db(limite=50):
     datos = cursor.fetchall()
     conn.close()
     return datos
+
+# ==========================================
+# SISTEMA LAEBOARD
+# ==========================================
+
+def obtener_ranking_staff_db():
+    conn = conectar()
+    cursor = conn.cursor()
+    mes_actual = datetime.now().strftime("%Y-%m")
+    
+    query = """
+    SELECT 
+        b.nombre,
+        COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
+        COALESCE(AVG(CASE WHEN p.estado = 'Terminado' THEN p.wr END), 0) as avg_wr,
+        COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
+        
+        -- LÓGICA V13: Puntos basados en el ELO FINAL del pedido
+        COALESCE(SUM(CASE 
+            WHEN p.estado = 'Terminado' THEN 
+                COALESCE(
+                    (SELECT puntos FROM config_precios 
+                     WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 
+                    2 -- Si el rango final no está en tarifas, da 2 pts
+                )
+            WHEN p.estado = 'Abandonado' THEN -10
+            ELSE 0 
+        END), 0) as score
+
+    FROM boosters b
+    LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
+        AND p.fecha_fin_real LIKE ?
+    GROUP BY b.id, b.nombre
+    HAVING (terminados > 0 OR abandonos > 0)
+    ORDER BY score DESC
+    """
+    
+    try:
+        cursor.execute(query, (f"{mes_actual}%",))
+        ranking = cursor.fetchall()
+    except Exception as e:
+        print(f"Error en ranking V13: {e}")
+        ranking = []
+    finally:
+        conn.close()
+    return ranking
+
+def obtener_resumen_mensual_db():
+    conn = conectar()
+    cursor = conn.cursor()
+    # Obtenemos: Total pagado a staff, total pedidos, y WR promedio del mes
+    query = """
+        SELECT 
+            SUM(pago_booster), 
+            COUNT(*), 
+            AVG(wr) 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND strftime('%m', fecha_fin_real) = strftime('%m', 'now')
+        AND strftime('%Y', fecha_fin_real) = strftime('%Y', 'now')
+    """
+    cursor.execute(query)
+    res = cursor.fetchone()
+    conn.close()
+    return res if res[1] > 0 else (0, 0, 0)
