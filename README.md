@@ -1,32 +1,32 @@
 
-# PerezBoost Manager V9.0 🏆 (Intelligence & Competition)
+# PerezBoost Manager V9.5 🏆 (Finance & Operational Excellence)
 
 Professional high-performance management suite for Elo Boosting services. Full control, automated reporting, and data-driven competition in a single interface.
 
-**Version:** 9.0 | **Edition:** Platinum | **Python:** 3.10+
+**Version:** 9.5 | **Edition:** Platinum | **Python:** 3.10+
 
 ---
 
-## 🌟 What's New in V9.0 (Intelligence Phase)
+## 🌟 What's New in V9.5 (The "CFO" Update)
 
-* **🏆 Automated Leaderboard:** Dynamic performance ranking with a monthly-reset MVP system. Points are weighted by league difficulty using a precision algorithm:
+* **💰 Advanced Financial Suite:** Full control over Net Profit, Gross Income, and Pending Staff Payouts. No more manual math.
+* **💸 Automated Liquidation System:** One-click payroll settlement. Automatically groups finished orders per booster (e.g., `E4 + D1 + D3`) and generates a total to pay.
+* **🏆 Intelligent Leaderboard V2:** Monthly-reset MVP system. Points are now fully customizable from the Rates tab.
   $$
-  Score = \sum (Points_{League}) - (Abandons \times 10)
+  Score = \sum (League\_Points_{Configurable}) - (Abandons \times 10)
   $$
-* **📢 Dual Discord Webhooks:** Split communication architecture. Separate channels for operational logs/orders and public weekly ranking flexes.
-* **🛡️ Privacy & Data Integrity:** New "Ninja Mode" checkbox to bypass Discord notifications for specific orders and mandatory 0-100% WinRate sanity checks.
-* **📊 Executive Dashboard:** Instant monthly KPIs (Total Staff Payouts, Global WinRate, Order Volume) integrated directly into the ranking view for real-time business health checks.
-* **⚙️ Dynamic Scoring Engine:** Point values for the ranking are now fully customizable from the Rates configuration tab.
+* **☀️ Real-Time Profit Tracking:** New Dashboard card showing **Profit Today** vs  **Monthly Projections** .
+* **🛡️ Private Operational History:** Clean history view (hidden financial data) with automatic duration calculation (e.g., "⚡ <24h" or "3 days").
+* **🕵️ Audit "Black Box" Logs:** Enhanced traceability for every critical action (payouts, rate changes, status updates).
 
 ---
 
 ## 🛠️ Core Features
 
 * **⚔️ Order Management:** Tracking with "Urgency Traffic Light" (Red/Yellow/Green) based on delivery deadlines.
-* **🤖 Discord Professional Webhooks:** Automated high-impact Embeds for completed orders and stock updates.
-* **🕵️ "Black Box" Audit Logs:** Unalterable registry of every critical action for 100% traceability.
-* **💰 Private Cash Control:** Secure registry of net profits and staff payments, hidden from non-admin eyes.
-* **🛡️ Proactive Security:** Automatic database backups before every session close and event logging.
+* **🤖 Discord Webhooks:** Automated high-impact Embeds for completed orders and stock updates.
+* **💰 Cash Flow Control:** Secure registry of net profits and staff payments, encrypted from non-admin eyes.
+* **🛡️ Proactive Security:** Automatic database backups and event logging for 100% traceability.
 
 ---
 
@@ -34,21 +34,14 @@ Professional high-performance management suite for Elo Boosting services. Full c
 
 ### 🔹 V10.0: The Cloud Era (Freedom)
 
-* **🌐 Cloud Migration:** Moving from local SQLite to PostgreSQL/MySQL for remote access.
+* **🌐 Cloud Migration:** Moving from local SQLite to PostgreSQL for remote access.
 * **📱 Web-View Dashboard:** Lightweight mobile-friendly web portal to check stats on the go.
-* **💸 Automated Liquidation:** One-click payment reports to settle staff balances.
+* **Multi-User Access:** Manager vs Admin permissions.
 
 ### 🔹 V11.0: Intelligence & Automation (Autopilot)
 
-* **📈 Financial Charts:** Visual pie charts for income distribution and monthly growth bars.
-* **🔮 Smart Matchmaking:** AI-driven suggestions to assign the best booster for each specific rank.
-* **💬 Customer Auto-Updates:** Automated messaging system for client status notifications.
-
-### 🔹 V12.0: The Global Empire (Expansion)
-
-* **🎮 Multi-Game Support:** Logic adaptation for Valorant, Wild Rift, and other titles.
-* **💳 Crypto-Payment Integration:** Automated cash-flow registry via Binance/Wallets.
-* **📱 Native Mobile App:** Full-featured Android/iOS application for total empire management.
+* **📈 Visual Analytics:** Financial pie charts and monthly growth bars (Matplotlib integration).
+* **🔮 Smart Assignment:** AI suggestions based on booster winrate and current rank.
 
 ---
 
@@ -58,11 +51,9 @@ Professional high-performance management suite for Elo Boosting services. Full c
    `git clone https://github.com/AndresPerez2406/PerezBoost-Manager.git`
    `cd PerezBoost-Manager`
 2. **Environment & Dependencies:**
-   `python -m venv .venv`
-   `source .venv/bin/activate` (Windows: `.venv\Scripts\activate`)
    `pip install -r requirements.txt`
 3. **Run:**
-   `python gui_main.py`
+   `python main.py`
 
 ---
 

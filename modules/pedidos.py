@@ -23,41 +23,6 @@ def obtener_pedidos_visual():
         procesados.append((i, p[0], p[1], p[3], f_ini, f_lim, tiempo))
     return procesados
 
-def obtener_historial_visual():
-    
-    datos = obtener_historial_completo()
-    procesados = []
-    
-    for i, h in enumerate(datos, start=1):
-
-        estado = str(h[10]).upper() if h[10] else "TERMINADO"
-        icon = "✅" if estado == "TERMINADO" else "❌"
-        usuario = h[9].split(':')[0] if h[9] else "N/A"
-        
-        try:
-            d_ini = datetime.strptime(str(h[7]).split(' ')[0], "%Y-%m-%d")
-            d_fin = datetime.strptime(str(h[8]).split(' ')[0], "%Y-%m-%d")
-            diferencia = (d_fin - d_ini).days
-            txt_duracion = f"{diferencia} días" if diferencia > 0 else "Mismo día"
-        except:
-            txt_duracion = "N/A"
-
-        fila = (
-            i,                          
-            h[1],                       
-            f"{icon} {usuario} ({h[2]})",
-            f"${(h[4] or 0.0):.2f}",    
-            f"${(h[5] or 0.0):.2f}",    
-            f"${(h[6] or 0.0):.2f}",    
-            str(h[7]).split(' ')[0],    
-            str(h[8]).split(' ')[0],    
-            txt_duracion,               
-            estado                      
-        )
-        procesados.append(fila)
-        
-    return procesados, None
-
 # ======================================================
 #  INTERFAZ CMD
 # ======================================================

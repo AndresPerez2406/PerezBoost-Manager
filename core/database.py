@@ -40,23 +40,27 @@ def inicializar_db():
 
     cursor.execute('CREATE TABLE IF NOT EXISTS boosters (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL UNIQUE)')
     cursor.execute('CREATE TABLE IF NOT EXISTS inventario (id INTEGER PRIMARY KEY AUTOINCREMENT, user_pass TEXT NOT NULL UNIQUE, elo_tipo TEXT, descripcion TEXT DEFAULT "FRESH")')
+
     cursor.execute('''CREATE TABLE IF NOT EXISTS pedidos (
             id INTEGER PRIMARY KEY AUTOINCREMENT, booster_id INTEGER, booster_nombre TEXT, 
             user_pass TEXT, elo_inicial TEXT, fecha_inicio TEXT, fecha_limite TEXT, 
             estado TEXT DEFAULT 'En progreso', elo_final TEXT, wr REAL, fecha_fin_real TEXT,
-            pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL, ajuste_valor REAL DEFAULT 0, ajuste_motivo TEXT,
+            pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL, 
+            ajuste_valor REAL DEFAULT 0, ajuste_motivo TEXT,
+            pago_realizado INTEGER DEFAULT 0,
             FOREIGN KEY (booster_id) REFERENCES boosters (id))''')
+
+    try:
+        cursor.execute('ALTER TABLE pedidos ADD COLUMN pago_realizado INTEGER DEFAULT 0')
+    except:
+        pass
+
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
-    
-    # MODIFICADO: Agregada columna puntos
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')
-    
     cursor.execute('CREATE TABLE IF NOT EXISTS sistema_config (clave TEXT PRIMARY KEY, valor TEXT)')
     
-    # Verificamos si hay que insertar los precios iniciales con sus puntos
     cursor.execute("SELECT COUNT(*) FROM config_precios")
     if cursor.fetchone()[0] == 0:
-        # Formato: (División, Precio Cliente, Margen Empresa, PUNTOS)
         precios = [
             ('D1', 45.0, 10.0, 45), ('D2', 35.0, 10.0, 40), ('D3', 30.0, 10.0, 35), ('D4', 30.0, 10.0, 30),
             ('E1', 18.0, 5.0, 21),  ('E2', 15.0, 5.0, 18),  ('E3', 12.0, 5.0, 15),  ('E4', 12.0, 5.0, 12),
@@ -171,24 +175,20 @@ def registrar_abandono_db(id_pedido, elo_dejado, wr_dejado):
     return exito
 
 def actualizar_pedido_db(id_pedido, datos):
-    """
-    datos es un diccionario con las columnas a actualizar.
-    Ej: {'booster_nombre': 'Faker', 'pago_cliente': 50.0}
-    """
+
     conn = conectar()
     cursor = conn.cursor()
-    
-    
+
     columnas = ", ".join([f"{k} = ?" for k in datos.keys()])
     valores = list(datos.values())
     valores.append(id_pedido)
-    
+
     query = f"UPDATE pedidos SET {columnas} WHERE id = ?"
     cursor.execute(query, valores)
-    
+
     conn.commit()
     conn.close()
-    
+
 def obtener_resumen_alertas():
     conn = conectar()
     cursor = conn.cursor()
@@ -205,10 +205,6 @@ def obtener_resumen_alertas():
     conn.close()
     return vencidos, stock
     
-# ==========================================
-# SECCIÓN 4: FINANZAS E HISTORIAL
-# ==========================================
-
 def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajuste_v, ajuste_m):
     conn = conectar(); cursor = conn.cursor(); fecha_fin = datetime.now().strftime("%Y-%m-%d %H:%M")
     try:
@@ -219,17 +215,23 @@ def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajust
         conn.commit(); return True
     except: return False
     finally: conn.close()
+    
+# ==========================================
+# SECCIÓN 4: HISTORIAL
+# ==========================================
 
 def obtener_historial_completo():
     conn = conectar()
     cursor = conn.cursor()
-
+    # Cambiamos el ORDER BY para que sea cronológico descendente real
     cursor.execute("""
-        SELECT id, booster_nombre, elo_final, wr, pago_booster, ganancia_empresa, 
-               pago_cliente, fecha_inicio, fecha_fin_real, user_pass, estado 
+        SELECT id, booster_nombre, user_pass, elo_final, 
+               strftime('%Y-%m-%d', fecha_inicio), 
+               strftime('%Y-%m-%d', fecha_fin_real), 
+               estado 
         FROM pedidos 
         WHERE estado IN ('Terminado', 'Abandonado') 
-        ORDER BY DATE(fecha_fin_real) ASC
+        ORDER BY fecha_fin_real DESC, id DESC
     """)
     data = cursor.fetchall()
     conn.close()
@@ -242,49 +244,86 @@ def obtener_historial_completo():
 def obtener_config_precios():
     conn = conectar()
     cursor = conn.cursor()
+
     cursor.execute("SELECT division, precio_cliente, margen_perez, puntos FROM config_precios ORDER BY puntos DESC")
     res = cursor.fetchall()
     conn.close()
     return res
 
-def actualizar_precio_db(div, p_cli, m_per):
-    conn = conectar(); cursor = conn.cursor()
+def actualizar_precio_db(division, nuevo_precio, nuevo_margen, nuevos_puntos):
+    conn = conectar()
+    cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE config_precios SET precio_cliente = ?, margen_perez = ? WHERE division = ?", (p_cli, m_per, div))
-        conn.commit(); return True
-    except: return False
-    finally: conn.close()
 
-def agregar_precio_db(div, p_cli, m_per):
+        cursor.execute("""
+            UPDATE config_precios 
+            SET precio_cliente = ?, margen_perez = ?, puntos = ? 
+            WHERE division = ?
+        """, (nuevo_precio, nuevo_margen, nuevos_puntos, division))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error al actualizar tarifa: {e}")
+        return False
+    finally:
+        conn.close()
 
-    conn = conectar(); cursor = conn.cursor()
+def agregar_precio_db(div, p_cli, m_per, pts=2):
+    conn = conectar()
+    cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO config_precios (division, precio_cliente, margen_perez) VALUES (?, ?, ?)", (div, p_cli, m_per))
-        conn.commit(); return True
-    except: return False
-    finally: conn.close()
+        cursor.execute("""
+            INSERT INTO config_precios (division, precio_cliente, margen_perez, puntos) 
+            VALUES (?, ?, ?, ?)
+        """, (div, p_cli, m_per, pts))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error al agregar tarifa: {e}")
+        return False
+    finally:
+        conn.close()
 
 def eliminar_precio_db(div):
-
-    conn = conectar(); cursor = conn.cursor()
+    conn = conectar()
+    cursor = conn.cursor()
     try:
         cursor.execute("DELETE FROM config_precios WHERE division = ?", (div,))
         exito = cursor.rowcount > 0
-        conn.commit(); return exito
-    except: return False
-    finally: conn.close()
+        conn.commit()
+        return exito
+    except Exception as e:
+        print(f"Error al eliminar tarifa: {e}")
+        return False
+    finally:
+        conn.close()
 
 # ==========================================
-# SECCIÓN 6: DASHBOARD Y REPORTES (CORREGIDA)
+# SECCIÓN 6: DASHBOARD Y REPORTES
 # ==========================================
+
+def obtener_profit_diario_db():
+    conn = conectar()
+    cursor = conn.cursor()
+    hoy = datetime.now().strftime("%Y-%m-%d")
+
+    cursor.execute("""
+        SELECT SUM(ganancia_empresa) 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND DATE(fecha_fin_real) = DATE(?)
+    """, (hoy,))
+    
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res[0] else 0.0
 
 def obtener_kpis_mensuales():
     """Devuelve (Ganancia Real del Mes, Cantidad Terminados Mes)"""
     conn = conectar()
     cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
-    
-    # 1. Ganancia Real (Caja cerrada este mes)
+
     cursor.execute("""
         SELECT SUM(ganancia_empresa), COUNT(*) 
         FROM pedidos 
@@ -473,7 +512,7 @@ def obtener_ranking_staff_db():
 def obtener_resumen_mensual_db():
     conn = conectar()
     cursor = conn.cursor()
-    # Obtenemos: Total pagado a staff, total pedidos, y WR promedio del mes
+
     query = """
         SELECT 
             SUM(pago_booster), 
@@ -488,3 +527,60 @@ def obtener_resumen_mensual_db():
     res = cursor.fetchone()
     conn.close()
     return res if res[1] > 0 else (0, 0, 0)
+
+# ==========================================
+# SISTEMA PAGOS A BOOSTERS
+# ==========================================
+
+def obtener_balance_general_db():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            SUM(pago_cliente), 
+            SUM(pago_booster),
+            SUM(ganancia_empresa)
+        FROM pedidos 
+        WHERE estado = 'Terminado'
+    """)
+    res = cursor.fetchone()
+    conn.close()
+    
+    total_cli = res[0] if res[0] is not None else 0
+    total_boo = res[1] if res[1] is not None else 0
+    utilidad = res[2] if res[2] is not None else (total_cli - total_boo)
+    
+    return utilidad, total_cli, total_boo
+
+def obtener_saldos_pendientes_db():
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            booster_nombre, 
+            SUM(pago_booster),
+            COUNT(*),
+            GROUP_CONCAT(elo_final || ' ($' || pago_booster || ')', ' + ')
+        FROM pedidos 
+        WHERE estado = 'Terminado' AND (pago_realizado = 0 OR pago_realizado IS NULL)
+        GROUP BY booster_nombre
+        ORDER BY SUM(pago_booster) DESC
+    """)
+    res = cursor.fetchall()
+    conn.close()
+    return res
+
+def liquidar_pagos_booster_db(nombre_booster):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE pedidos 
+        SET pago_realizado = 1 
+        WHERE booster_nombre = ? AND estado = 'Terminado' AND (pago_realizado = 0 OR pago_realizado IS NULL)
+    """, (nombre_booster,))
+    
+    conn.commit()
+    cant = cursor.rowcount
+    conn.close()
+    return cant
