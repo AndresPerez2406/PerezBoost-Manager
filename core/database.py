@@ -142,21 +142,34 @@ def actualizar_inventario_db(id_inv, datos):
 def crear_pedido(id_booster, nombre_booster, id_cuenta, user_pass, elo, fecha_fin):
     conn = conectar(); cursor = conn.cursor(); exito = False
     try:
+
         fecha_hoy = datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        if "/" in str(fecha_fin):
+            f_limite = datetime.strptime(fecha_fin, "%d/%m/%Y").strftime("%Y-%m-%d")
+        else:
+            f_limite = str(fecha_fin).split(' ')[0]
+
         cursor.execute('''INSERT INTO pedidos (booster_id, booster_nombre, user_pass, elo_inicial, 
                           fecha_inicio, fecha_limite, estado) VALUES (?, ?, ?, ?, ?, ?, 'En progreso')''', 
-                       (id_booster, nombre_booster, user_pass, elo, fecha_hoy, fecha_fin))
+                       (id_booster, nombre_booster, user_pass, elo, fecha_hoy, f_limite))
+        
         cursor.execute("DELETE FROM inventario WHERE id = ?", (id_cuenta,))
         conn.commit(); exito = True
-    except: conn.rollback()
-    finally: conn.close(); 
-    
+    except Exception as e: 
+        print(f"Error al crear pedido: {e}")
+        conn.rollback()
+    finally: conn.close()
     return exito
 
 def obtener_pedidos_activos():
-    conn = conectar(); cursor = conn.cursor()
+    conn = conectar()
+    cursor = conn.cursor()
+
     cursor.execute("SELECT id, booster_nombre, elo_inicial, user_pass, fecha_inicio, fecha_limite FROM pedidos WHERE estado = 'En progreso'")
-    data = cursor.fetchall(); conn.close(); return data
+    data = cursor.fetchall()
+    conn.close()
+    return data
 
 def registrar_abandono_db(id_pedido, elo_dejado, wr_dejado):
     conn = conectar(); cursor = conn.cursor(); exito = False
@@ -205,17 +218,34 @@ def obtener_resumen_alertas():
     conn.close()
     return vencidos, stock
     
-def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajuste_v, ajuste_m):
-    conn = conectar(); cursor = conn.cursor(); fecha_fin = datetime.now().strftime("%Y-%m-%d %H:%M")
+def finalizar_pedido_db(id_pedido, wr_final, fecha_fin, elo_final, ganancia_empresa, pago_booster):
+    conn = conectar(); cursor = conn.cursor()
     try:
-        cursor.execute("""UPDATE pedidos SET estado = 'Terminado', elo_final = ?, wr = ?, 
-                          pago_cliente = ?, pago_booster = ?, ganancia_empresa = ?, 
-                          fecha_fin_real = ?, ajuste_valor = ?, ajuste_motivo = ? WHERE id = ?""", 
-                       (elo_final, wr, cobro, pago_b, ganancia, fecha_fin, ajuste_v, ajuste_m, id_pedido))
-        conn.commit(); return True
-    except: return False
-    finally: conn.close()
-    
+
+        if "/" in str(fecha_fin):
+            fecha_db = datetime.strptime(fecha_fin, "%d/%m/%Y").strftime("%Y-%m-%d")
+        else:
+            fecha_db = str(fecha_fin).split(' ')[0]
+
+        cursor.execute("""
+            UPDATE pedidos 
+            SET estado = 'Terminado',
+                wr = ?,
+                fecha_fin_real = ?,
+                elo_final = ?,
+                ganancia_empresa = ?,
+                pago_booster = ? 
+            WHERE id = ?
+        """, (wr_final, fecha_db, elo_final, float(ganancia_empresa), float(pago_booster), id_pedido))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error Crítico BD: {e}")
+        return False
+    finally:
+        conn.close()
+        
 # ==========================================
 # SECCIÓN 4: HISTORIAL
 # ==========================================
@@ -223,12 +253,13 @@ def finalizar_pedido_db(id_pedido, elo_final, wr, cobro, pago_b, ganancia, ajust
 def obtener_historial_completo():
     conn = conectar()
     cursor = conn.cursor()
-    # Cambiamos el ORDER BY para que sea cronológico descendente real
+
     cursor.execute("""
         SELECT id, booster_nombre, user_pass, elo_final, 
-               strftime('%Y-%m-%d', fecha_inicio), 
-               strftime('%Y-%m-%d', fecha_fin_real), 
-               estado 
+               fecha_inicio, 
+               fecha_fin_real, 
+               estado,
+               wr
         FROM pedidos 
         WHERE estado IN ('Terminado', 'Abandonado') 
         ORDER BY fecha_fin_real DESC, id DESC
@@ -302,21 +333,38 @@ def eliminar_precio_db(div):
 # SECCIÓN 6: DASHBOARD Y REPORTES
 # ==========================================
 
+def obtener_resumen_mensual_db():
+    conn = conectar(); cursor = conn.cursor()
+    mes_actual = datetime.now().strftime("%Y-%m")
+
+    cursor.execute("""
+        SELECT SUM(pago_booster), SUM(ganancia_empresa), COUNT(*)
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND fecha_fin_real LIKE ?
+    """, (f"{mes_actual}%",))
+    
+    res = cursor.fetchone()
+    conn.close()
+    
+    if res and res[2] > 0:
+        return (res[0] or 0.0, res[1] or 0.0, res[2])
+    return (0.0, 0.0, 0)
+
 def obtener_profit_diario_db():
-    conn = conectar()
-    cursor = conn.cursor()
+    conn = conectar(); cursor = conn.cursor()
     hoy = datetime.now().strftime("%Y-%m-%d")
 
     cursor.execute("""
         SELECT SUM(ganancia_empresa) 
         FROM pedidos 
         WHERE estado = 'Terminado' 
-        AND DATE(fecha_fin_real) = DATE(?)
-    """, (hoy,))
+        AND fecha_fin_real LIKE ?
+    """, (f"{hoy}%",))
     
     res = cursor.fetchone()
     conn.close()
-    return res[0] if res[0] else 0.0
+    return res[0] if res and res[0] else 0.0
 
 def obtener_kpis_mensuales():
     """Devuelve (Ganancia Real del Mes, Cantidad Terminados Mes)"""
@@ -390,30 +438,35 @@ def obtener_ganancia_proyectada():
     finally:
         conn.close()
 
-def obtener_datos_reporte_avanzado(mes=None, booster_id=None):
+def obtener_datos_reporte_avanzado(mes_nombre, booster_nombre):
     conn = conectar()
     cursor = conn.cursor()
+
+    meses_dict = {
+        "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04",
+        "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08",
+        "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+    }
     
     query = "SELECT * FROM pedidos WHERE estado IN ('Terminado', 'Abandonado')"
     params = []
-
-    if mes and mes != "Todos":
+    
+    if mes_nombre != "Todos":
+        mes_num = meses_dict.get(mes_nombre)
 
         query += " AND strftime('%m', fecha_fin_real) = ?"
-        meses_map = {"Enero":"01","Febrero":"02","Marzo":"03","Abril":"04","Mayo":"05","Junio":"06",
-                     "Julio":"07","Agosto":"08","Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12"}
-        params.append(meses_map[mes])
-
-    if booster_id and booster_id != "Todos":
+        params.append(mes_num)
+        
+    if booster_nombre != "Todos":
         query += " AND booster_nombre = ?"
-        params.append(booster_id)
+        params.append(booster_nombre)
 
-    query += " ORDER BY fecha_fin_real DESC"
+    query += " ORDER BY fecha_fin_real DESC, id DESC"
     
     cursor.execute(query, params)
-    rows = cursor.fetchall()
+    datos = cursor.fetchall()
     conn.close()
-    return rows
+    return datos
 
 # ==========================================
 # SECCIÓN 7: CONFIGURACIÓN DEL SISTEMA (DISCORD)
@@ -464,54 +517,78 @@ def obtener_logs_db(limite=50):
     return datos
 
 # ==========================================
-# SISTEMA LAEBOARD
+# SISTEMA LEABOARD
 # ==========================================
 
 def obtener_ranking_staff_db():
+    conn = conectar(); cursor = conn.cursor()
+    mes_actual = datetime.now().strftime("%Y-%m")
+
+    query = """
+    SELECT b.nombre, 
+           COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
+           COALESCE(AVG(CASE WHEN p.estado = 'Terminado' THEN p.wr END), 0) as avg_wr,
+           COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
+           COALESCE(SUM(CASE 
+               WHEN p.estado = 'Terminado' THEN 
+                   COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
+               WHEN p.estado = 'Abandonado' THEN -10 
+               ELSE 0 END), 0) as score
+    FROM boosters b 
+    LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
+    WHERE p.fecha_inicio LIKE ? 
+    GROUP BY b.id, b.nombre 
+    ORDER BY score DESC LIMIT 5
+    """
+    cursor.execute(query, (f"{mes_actual}%",))
+    ranking = cursor.fetchall(); conn.close(); return ranking
+
+def obtener_total_bote_ranking():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    mes_actual = datetime.now().strftime("%Y-%m")
+
+    cursor.execute("""
+        SELECT COUNT(*) 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND fecha_inicio LIKE ?
+        AND wr > 60
+    """, (f"{mes_actual}%",))
+    
+    total_pedidos_validos = cursor.fetchone()[0] or 0
+    conn.close()
+
+    return 25 + total_pedidos_validos
+
+def obtener_pedidos_mes_actual_db():
     conn = conectar()
     cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
-    
-    query = """
-    SELECT 
-        b.nombre,
-        COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
-        COALESCE(AVG(CASE WHEN p.estado = 'Terminado' THEN p.wr END), 0) as avg_wr,
-        COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
-        
-        -- LÓGICA V13: Puntos basados en el ELO FINAL del pedido
-        COALESCE(SUM(CASE 
-            WHEN p.estado = 'Terminado' THEN 
-                COALESCE(
-                    (SELECT puntos FROM config_precios 
-                     WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 
-                    2 -- Si el rango final no está en tarifas, da 2 pts
-                )
-            WHEN p.estado = 'Abandonado' THEN -10
-            ELSE 0 
-        END), 0) as score
 
-    FROM boosters b
-    LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
-        AND p.fecha_fin_real LIKE ?
-    GROUP BY b.id, b.nombre
-    HAVING (terminados > 0 OR abandonos > 0)
-    ORDER BY score DESC
-    """
+    cursor.execute("""
+        SELECT COUNT(*) 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND fecha_inicio LIKE ?
+        AND wr > 60
+    """, (f"{mes_actual}%",))
     
-    try:
-        cursor.execute(query, (f"{mes_actual}%",))
-        ranking = cursor.fetchall()
-    except Exception as e:
-        print(f"Error en ranking V13: {e}")
-        ranking = []
-    finally:
-        conn.close()
-    return ranking
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else 0
 
 def obtener_resumen_mensual_db():
+    """
+    Resumen para el Hall of Fame.
+    CORREGIDO: Ahora filtra estrictamente por 'fecha_inicio' del mes actual.
+    Así coincide con el Ranking y el Bote.
+    """
     conn = conectar()
     cursor = conn.cursor()
+
+    mes_actual = datetime.now().strftime("%Y-%m")
 
     query = """
         SELECT 
@@ -520,13 +597,35 @@ def obtener_resumen_mensual_db():
             AVG(wr) 
         FROM pedidos 
         WHERE estado = 'Terminado' 
-        AND strftime('%m', fecha_fin_real) = strftime('%m', 'now')
-        AND strftime('%Y', fecha_fin_real) = strftime('%Y', 'now')
+        AND fecha_inicio LIKE ?  -- EL CAMBIO CLAVE: Usamos fecha_inicio
     """
-    cursor.execute(query)
+    
+    cursor.execute(query, (f"{mes_actual}%",))
     res = cursor.fetchone()
     conn.close()
-    return res if res[1] > 0 else (0, 0, 0)
+
+    if res and res[1] > 0:
+        return res
+    else:
+        return (0, 0, 0)
+    
+def obtener_ranking_db():
+    conn = conectar()
+    cursor = conn.cursor()
+    mes_actual = datetime.now().strftime("%Y-%m")
+    
+    query = """
+        SELECT booster_nombre, COUNT(*), AVG(wr)
+        FROM pedidos
+        WHERE estado = 'Terminado'
+        AND fecha_inicio LIKE ?
+        GROUP BY booster_nombre
+        ORDER BY COUNT(*) DESC
+    """
+    cursor.execute(query, (f"{mes_actual}%",))
+    res = cursor.fetchall()
+    conn.close()
+    return res
 
 # ==========================================
 # SISTEMA PAGOS A BOOSTERS

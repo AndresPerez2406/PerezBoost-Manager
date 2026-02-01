@@ -19,8 +19,10 @@ from core.database import (
     finalizar_pedido_db, registrar_abandono_db, obtener_datos_reporte_avanzado,
     obtener_pedidos_activos, crear_pedido, guardar_config_sistema, obtener_config_sistema,
     obtener_kpis_mensuales, registrar_log, obtener_logs_db, obtener_ranking_staff_db,
-    obtener_resumen_mensual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
-    obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db
+    obtener_pedidos_mes_actual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
+    obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
+    obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db
+
     
 )
 from core.logic import (
@@ -55,7 +57,7 @@ class PerezBoostApp(ctk.CTk):
         self.map_c_id = {}
         self.map_c_note = {}
 
-        self.title("PerezBoost Manager V9.0 - Platinum Edition") # ¡Actualizamos nombre!
+        self.title("PerezBoost Manager V9.0 - Platinum Edition")
         self.geometry("1240x750")
         ctk.set_appearance_mode("dark")
         self.centrar_ventana(self, 1240, 750)
@@ -223,13 +225,12 @@ class PerezBoostApp(ctk.CTk):
                       fg_color="#1f538d", height=45, width=200).pack(side="left", padx=10)
 
     def abrir_reporte_diario(self):
-        """Genera el reporte Full Audit filtrando por las nuevas columnas financieras."""
+        """Genera el reporte Full Audit blindado contra errores de formato."""
         hoy_str = datetime.now().strftime("%Y-%m-%d")
         conn = conectar()
         cursor = conn.cursor()
         
         try:
-
             cursor.execute("""
                 SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr,
                        fecha_inicio, fecha_fin_real,
@@ -249,27 +250,46 @@ class PerezBoostApp(ctk.CTk):
             
             if not pedidos_hoy:
                 reporte += "       (No se registraron cierres hoy)\n"
-            
-            for i, p in enumerate(pedidos_hoy, start=1):
-                p_id, staff, cuenta, e_ini, e_fin, wr, f_ini, f_fin, cobro, pago, ganancia = p
+                
+            def clean_f(val):
+                try:
+                    if val is None: return 0.0
+                    return float(str(val).replace('$', '').replace(',', '').strip())
+                except: return 0.0
 
-                cobro, pago, ganancia = cobro or 0.0, pago or 0.0, ganancia or 0.0
+            for p in pedidos_hoy:
+                p_id, staff, cuenta, e_ini, e_fin, wr, f_ini, f_fin, cobro_raw, pago_raw, ganancia_raw = p
+
+                cobro = clean_f(cobro_raw)
+                pago = clean_f(pago_raw)
+                ganancia = clean_f(ganancia_raw)
+
+                if cobro == 0 and (pago > 0 or ganancia > 0):
+                    cobro = pago + ganancia
+
                 sum_ventas += cobro
                 sum_staff += pago
                 sum_ganancia += ganancia
 
                 try:
-                    d1 = datetime.strptime(str(f_ini).split(' ')[0], "%Y-%m-%d")
-                    d2 = datetime.strptime(str(f_fin).split(' ')[0], "%Y-%m-%d")
+                    s_ini = str(f_ini).split(' ')[0]
+                    s_fin = str(f_fin).split(' ')[0]
+                    try:
+                        d1 = datetime.strptime(s_ini, "%Y-%m-%d")
+                        d2 = datetime.strptime(s_fin, "%Y-%m-%d")
+                    except:
+                        d1 = datetime.strptime(s_ini, "%d/%m/%Y")
+                        d2 = datetime.strptime(s_fin, "%d/%m/%Y")
+                    
                     dias = (d2 - d1).days
                     duracion_txt = f"{dias} días" if dias > 0 else "⚡ <24h"
                 except:
                     duracion_txt = "N/A"
 
-                reporte += f"📦 ORDEN #{p_id} | {staff.upper()}\n"
+                reporte += f"📦 ORDEN #{p_id} | {str(staff).upper()}\n"
                 reporte += f"   ├─ 🎮 Cuenta: {cuenta} ({e_ini} ➔ {e_fin})\n"
                 reporte += f"   ├─ ⏳ Tiempo: {duracion_txt} | WR: {wr}%\n"
-                reporte += f"   └─ 💰 Neto: +${ganancia:.2f} (Venta: ${cobro:.0f})\n"
+                reporte += f"   └─ 💰 Neto: +${ganancia:.2f} (Venta: ${cobro:.2f})\n"
                 reporte += f"────────────────────────────────────\n"
 
             reporte += (
@@ -296,6 +316,7 @@ class PerezBoostApp(ctk.CTk):
 
         except Exception as e:
             messagebox.showerror("Error", f"Error en reporte: {e}")
+            print(f"Error detallado reporte: {e}")
         finally: 
             conn.close()
             
@@ -540,7 +561,7 @@ class PerezBoostApp(ctk.CTk):
         self.tabla_pedidos.tag_configure('alerta', foreground='#ffa500')
         self.tabla_pedidos.tag_configure('normal', foreground='#2ecc71')
         
-        headers = ["#", "ID_R", "STAFF", "ELO", "CUENTA / USER", "INICIO", "ENTREGA", "TIEMPO"]
+        headers = ["#", "ID_R", "STAFF", "ELO", "CUENTA / USER", "INICIO", "FIN", "TIEMPO"]
         anchos = [40, 0, 130, 100, 200, 100, 100, 130]
 
         for c, h, w in zip(cols, headers, anchos):
@@ -562,50 +583,57 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkButton(footer, text="🚫 Abandono", fg_color="#e74c3c", command=self.abrir_ventana_reportar_abandono).pack(side="right", padx=10)
 
     def filtrar_pedidos(self, event=None):
-
         query = self.entry_busqueda.get().lower().strip()
         hoy = datetime.now().date()
         
         if not self.tabla_pedidos: return
-
-        for i in self.tabla_pedidos.get_children(): 
-            self.tabla_pedidos.delete(i)
+        for i in self.tabla_pedidos.get_children(): self.tabla_pedidos.delete(i)
         
         try:
             datos_raw = obtener_pedidos_activos()
             if not datos_raw: return
 
             for i, p in enumerate(datos_raw, start=1):
+                try:
+                    def procesar_fecha(txt):
+                        txt = str(txt).split(' ')[0].strip()
+                        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                            try:
+                                return datetime.strptime(txt, fmt).date()
+                            except:
+                                continue
+                        return None
 
-                id_pedido = str(p[0])
-                booster_nom = str(p[1]).lower()
-                cuenta_user = str(p[3]).lower()
-                elo_actual = str(p[2]).lower()
+                    dt_inicio = procesar_fecha(p[4])
+                    dt_limite = procesar_fecha(p[5])
 
-                if (query == "" or 
-                    query in id_pedido or 
-                    query in booster_nom or 
-                    query in cuenta_user or
-                    query in elo_actual):
+                    if dt_inicio and dt_limite:
+                        dias_activa = (hoy - dt_inicio).days
+                        dias_restantes = (dt_limite - hoy).days
 
-                    try:
-                        fecha_str = str(p[5]).split(' ')[0].strip()
-                        fecha_entrega = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-                        dias_dif = (fecha_entrega - hoy).days
-                        
-                        if dias_dif <= 1: tag, ico = 'urgente', "🔴"
-                        elif dias_dif <= 3: tag, ico = 'alerta', "🟡"
-                        else: tag, ico = 'normal', "🟢"
-                    except: tag, ico = 'normal', "⚪"
+                        if dias_restantes < 0: 
+                            tag, ico = 'urgente', f"💀 {dias_activa}d"
+                        elif dias_restantes <= 1: 
+                            tag, ico = 'urgente', f"🔴 {dias_activa}d"
+                        elif dias_restantes <= 3: 
+                            tag, ico = 'alerta', f"🟡 {dias_activa}d"
+                        else: 
+                            tag, ico = 'normal', f"🟢 {dias_activa}d"
 
-                    tiempo_trans = calcular_tiempo_transcurrido(str(p[4]))
+                        f_ini_v = dt_inicio.strftime("%d/%m/%Y")
+                        f_lim_v = dt_limite.strftime("%d/%m/%Y")
+                    else:
+                        raise ValueError("Formato no reconocido")
 
-                    fila = (i, p[0], p[1], p[2], p[3], str(p[4]).split(' ')[0], 
-                            str(p[5]).split(' ')[0], f"{ico} {tiempo_trans}")
+                except Exception as e:
+                    f_ini_v, f_lim_v, ico, tag = str(p[4]), str(p[5]), "⚪ Error", "normal"
+
+                if query == "" or query in str(p[0]) or query in str(p[1]).lower() or query in str(p[3]).lower():
+                    fila = (i, p[0], p[1], p[2], p[3], f_ini_v, f_lim_v, ico)
                     self.tabla_pedidos.insert("", tk.END, values=fila, tags=(tag,))
                     
         except Exception as e:
-            print(f"Error en Búsqueda Global: {e}")
+            print(f"Error en tabla: {e}")
 
     # =========================================================================
     # 7. SECCIÓN: HISTORIAL
@@ -624,20 +652,23 @@ class PerezBoostApp(ctk.CTk):
 
         self.entry_busqueda_h = ctk.CTkEntry(header, placeholder_text="Filtrar Staff/Estado...", width=200)
         self.entry_busqueda_h.pack(side="right")
+        self.entry_busqueda_h.bind("<KeyRelease>", lambda e: self.filtrar_historial())
         ctk.CTkButton(header, text="🔍", width=40, command=self.filtrar_historial).pack(side="right", padx=5)
 
-        cols = ("#", "booster", "cuenta", "inicio", "fin", "duracion", "estado_oculto")
+        cols = ("id_visual", "booster", "cuenta", "wr", "inicio", "fin", "duracion", "estado_oculto")
         self.tabla_historial = ttk.Treeview(self.content_frame, columns=cols, show="headings")
 
-        anchos = [35, 150, 300, 120, 120, 120, 0] 
-        headers = ["#", "STAFF", "CUENTA / ELO FINAL", "INICIO", "FIN", "DURACIÓN", ""]
+        anchos = [50, 150, 280, 70, 110, 110, 100, 0] 
+        headers = ["#", "STAFF", "CUENTA / ELO FINAL", "WR", "INICIO", "FIN", "DURACIÓN", ""]
         
         for col, head, ancho in zip(cols, headers, anchos):
             self.tabla_historial.heading(col, text=head)
+            
             if col == "estado_oculto": 
                 self.tabla_historial.column(col, width=0, stretch=tk.NO)
+            elif col == "id_visual":
+                self.tabla_historial.column(col, width=ancho, anchor="center", stretch=tk.NO)
             else: 
-               
                 self.tabla_historial.column(col, width=ancho, anchor="center", stretch=(col=="cuenta"))
 
         self.tabla_historial.tag_configure('terminado', foreground='#2ecc71')
@@ -652,55 +683,70 @@ class PerezBoostApp(ctk.CTk):
         self.lbl_totales_h.pack(expand=True)
         
         self.filtrar_historial()
-
-    def filtrar_historial(self, solo_abandonos=False):
-        from datetime import datetime
         
+    def filtrar_historial(self, solo_abandonos=False):
         query = self.entry_busqueda_h.get().lower()
         if not self.tabla_historial: return
 
-        # Limpiar la tabla por completo antes de insertar los nuevos datos ordenados
         for item in self.tabla_historial.get_children():
             self.tabla_historial.delete(item)
         
         try:
             datos = obtener_historial_completo() 
+            contador_visual = 1 
             
             for row in datos:
-                id_ped, booster, user, elo_fin, ini, fin, estado = row
-                
+
+                id_ped_real, booster, user, elo_fin, ini_raw, fin_raw, estado, wr = row
                 est_str = str(estado).upper()
 
                 mostrar = False
                 if solo_abandonos:
                     if "ABANDONADO" in est_str: mostrar = True
                 else:
-                    if query == "" or query in str(booster).lower() or query in est_str.lower(): mostrar = True
+                    if query == "" or query in str(booster).lower() or query in est_str.lower(): 
+                        mostrar = True
                 
                 if mostrar:
 
-                    duracion = "---"
-                    try:
-                        if ini and fin:
-                            f1 = datetime.strptime(ini, "%Y-%m-%d")
-                            f2 = datetime.strptime(fin, "%Y-%m-%d")
-                            diff = f2 - f1
-                            duracion = f"{diff.days} días" if diff.days > 0 else "Mismo día"
-                    except:
-                        pass 
+                    def f_v(t):
+                        if not t: return "---"
+                        t = str(t).split(' ')[0]
+                        try: return datetime.strptime(t, "%Y-%m-%d").strftime("%d/%m/%Y")
+                        except: return t
 
-                    cuenta_visual = f"{user} -> {elo_fin}"
-                    
+                    duracion = "---"
+
+                    try:
+                        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                            try:
+                                f1 = datetime.strptime(str(ini_raw).split(' ')[0], fmt)
+                                f2 = datetime.strptime(str(fin_raw).split(' ')[0], fmt)
+                                d = (f2 - f1).days
+                                duracion = f"{d} días" if d > 0 else "⚡ Hoy"
+                                break
+                            except: continue
+                    except: pass
+
                     tag = 'terminado' if "TERMINADO" in est_str else 'abandonado'
 
                     self.tabla_historial.insert("", "end", values=(
-                        id_ped, booster, cuenta_visual, ini, fin, duracion, est_str
+                        contador_visual, 
+                        booster, 
+                        f"{user} -> {elo_fin}", 
+                        f"{wr}%" if wr else "-", 
+                        f_v(ini_raw), 
+                        f_v(fin_raw), 
+                        duracion, 
+                        est_str    
                     ), tags=(tag,))
+                    
+                    contador_visual += 1
             
-            self.lbl_totales_h.configure(text=f"PEDIDOS EN LISTA: {len(self.tabla_historial.get_children())}")
+            self.lbl_totales_h.configure(text=f"MOSTRANDO {len(self.tabla_historial.get_children())} REGISTROS")
             
         except Exception as e:
-            print(f"Error crítico en desempaquetado: {e}")
+            print(f"Error en historial: {e}")
 
     # =========================================================================
     # 8. SECCIÓN: REPORTES AVANZADOS Y GRÁFICOS
@@ -773,30 +819,59 @@ class PerezBoostApp(ctk.CTk):
         conteo_terminados = 0
         dias_totales = 0
 
+        def limpiar_dinero(valor):
+            try:
+                if valor is None or valor == "": return 0.0
+                limpio = str(valor).replace('$', '').replace(',', '').strip()
+                return float(limpio)
+            except:
+                return 0.0
+
         if datos:
             for r in datos:
-                if r[7] == 'Terminado':
+
+                if str(r[7]).upper() == 'TERMINADO':
                     conteo_terminados += 1
-                    g_row = float(r[13] or 0)
-                    p_row = float(r[12] or 0)
-                    t_cli = float(r[11] or 0)
+
+                    g_row = limpiar_dinero(r[13])
+                    p_row = limpiar_dinero(r[12])
+
+                    t_cli = g_row + p_row
+                    
                     ganancia_neta_perez += g_row
                     pago_total_staff += p_row
-                    
+
                     try:
                         if r[5] and r[10]:
-                            fmt = "%Y-%m-%d %H:%M"
-                            ini = datetime.strptime(str(r[5])[:16], fmt)
-                            fin = datetime.strptime(str(r[10])[:16], fmt)
-                            dias = (fin - ini).days or 1
-                            dias_totales += dias
-                            d_txt = str(dias)
-                        else: d_txt = "N/A"
-                    except: d_txt = "-"
-                    self.tabla_rep.insert("", "end", values=(r[2], r[8], d_txt, f"${p_row:.2f}", f"${g_row:.2f}", f"${t_cli:.2f}"))
+                            str_ini = str(r[5]).split(' ')[0]
+                            str_fin = str(r[10]).split(' ')[0]
+                            try:
+                                ini = datetime.strptime(str_ini, "%Y-%m-%d")
+                                fin = datetime.strptime(str_fin, "%Y-%m-%d")
+                            except:
+                                ini = datetime.strptime(str_ini, "%d/%m/%Y")
+                                fin = datetime.strptime(str_fin, "%d/%m/%Y")
+                            
+                            dias = (fin - ini).days
+                            dias_final = dias if dias > 0 else 1
+                            dias_totales += dias_final
+                            d_txt = f"{dias_final} d"
+                        else: 
+                            d_txt = "N/A"
+                    except:
+                        d_txt = "-"
+                    
+                    self.tabla_rep.insert("", "end", values=(
+                        r[2],   
+                        r[8],   
+                        d_txt,   
+                        f"${p_row:.2f}", 
+                        f"${g_row:.2f}", 
+                        f"${t_cli:.2f}" 
+                    ))
 
         promedio = dias_totales / conteo_terminados if conteo_terminados > 0 else 0
-        
+
         self.crear_card_mini(self.kpi_frame, "PAGO BOOSTERS", f"${pago_total_staff:.2f}", "#3498db", 0)
         self.crear_card_mini(self.kpi_frame, "GANANCIA PEREZ", f"${ganancia_neta_perez:.2f}", "#2ecc71", 1)
         self.crear_card_mini(self.kpi_frame, "PEDIDOS", f"{conteo_terminados}", "#f1c40f", 2)
@@ -912,7 +987,7 @@ class PerezBoostApp(ctk.CTk):
             with pd.ExcelWriter(ruta, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Cierre')
                 ws = writer.sheets['Cierre']
-                ws['A1'] = "" # Limpiar esquina
+                ws['A1'] = ""
                 ws.column_dimensions['A'].width = 25
                 ws.column_dimensions['G'].width = 20
             
@@ -938,10 +1013,26 @@ class PerezBoostApp(ctk.CTk):
         main_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         main_frame.pack(expand=True, fill="both", padx=30, pady=20)
 
-        ctk.CTkLabel(main_frame, text="🏆 HALL OF FAME - TOP BOOSTERS", 
-                     font=("Arial", 28, "bold")).pack(pady=(0, 10))
+        ctk.CTkLabel(main_frame, text="🏆 HALL OF FAME - TOP BOOSTERS 🏆",
+                     font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(pady=(0, 15))
 
         try:
+            total_premio = obtener_total_bote_ranking()
+        except:
+            total_premio = 25
+        
+        extra_pedidos = total_premio - 25
+
+        prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
+        prize_frame.pack(fill="x", pady=(0, 20), padx=5)
+
+        texto_premio = f"💰 BOTE ACUMULADO: ${total_premio} USD 💰\nBase $25 + ${extra_pedidos} por => 60% WR"
+
+        ctk.CTkLabel(prize_frame, text=texto_premio, 
+                     font=("Arial", 18, "bold"), text_color="#ecf0f1").pack(pady=15)
+
+        try:
+
             pago_total, total_peds, wr_avg = obtener_resumen_mensual_db()
         except:
             pago_total, total_peds, wr_avg = 0, 0, 0
@@ -950,22 +1041,20 @@ class PerezBoostApp(ctk.CTk):
         stats_frame.pack(fill="x", pady=(0, 20))
         stats_frame.columnconfigure((0,1,2), weight=1)
 
-        # Col 1: Dinero Staff
-        ctk.CTkLabel(stats_frame, text="💰 Total Staff", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
+        ctk.CTkLabel(stats_frame, text="💸 Nómina Staff", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
         ctk.CTkLabel(stats_frame, text=f"${pago_total:.2f}", font=("Arial", 16, "bold"), text_color="#2ecc71").grid(row=1, column=0, pady=(0,10))
-        # Col 2: Entregas
-        ctk.CTkLabel(stats_frame, text="📦 Entregas Mes", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
-        ctk.CTkLabel(stats_frame, text=f"{total_peds}", font=("Arial", 16, "bold")).grid(row=1, column=1, pady=(0,10))
-        # Col 3: WR Global
-        ctk.CTkLabel(stats_frame, text="📊 WR Promedio", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
+
+        ctk.CTkLabel(stats_frame, text="📦 Entregas Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
+        ctk.CTkLabel(stats_frame, text=f"{total_peds}", font=("Arial", 16, "bold"), text_color="white").grid(row=1, column=1, pady=(0,10))
+
+        ctk.CTkLabel(stats_frame, text="📊 WR Global", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
         ctk.CTkLabel(stats_frame, text=f"{wr_avg:.1f}%", font=("Arial", 16, "bold"), text_color="#f1c40f").grid(row=1, column=2, pady=(0,10))
-        
-        # --- TABLA DE RANKING ---
+
         tabla_frame = ctk.CTkFrame(main_frame, fg_color="#1e1e1e", corner_radius=10)
         tabla_frame.pack(expand=True, fill="both", pady=(0, 20))
         
         columnas = ("Rango", "Staff", "Completados", "Avg WR", "Abandonos", "Puntaje")
-        self.tabla_rank = ttk.Treeview(tabla_frame, columns=columnas, show="headings", height=12)
+        self.tabla_rank = ttk.Treeview(tabla_frame, columns=columnas, show="headings", height=5)
         
         for col in columnas:
             self.tabla_rank.heading(col, text=col)
@@ -978,7 +1067,7 @@ class PerezBoostApp(ctk.CTk):
 
         datos = obtener_ranking_staff_db()
         if not datos:
-            self.tabla_rank.insert("", "end", values=("Scan...", "Sin actividad este mes", "-", "-", "-", "0 pts"))
+            self.tabla_rank.insert("", "end", values=("...", "Esperando actividad...", "-", "-", "-", "0 pts"))
         else:
             for i, b in enumerate(datos, start=1):
                 if i == 1: color_rank = "🥇 MVP"
@@ -988,15 +1077,19 @@ class PerezBoostApp(ctk.CTk):
                 
                 wr_formateado = f"{b[2]:.1f}%" if b[2] else "0%"
                 fila = (color_rank, b[0], b[1], wr_formateado, b[3], f"{b[4]} pts")
-                self.tabla_rank.insert("", "end", values=fila)
+
+                item = self.tabla_rank.insert("", "end", values=fila)
+                if i == 1:
+                    self.tabla_rank.item(item, tags=("top1",))
+        self.tabla_rank.tag_configure("top1", background="#2d2d2d") 
 
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill="x", pady=10)
         
-        ctk.CTkButton(btn_frame, text="🔄 Recalcular Mes", command=self.mostrar_leaderboard, 
+        ctk.CTkButton(btn_frame, text="🔄 Actualizar", command=self.mostrar_leaderboard, 
                       fg_color="#1f538d", height=40).pack(side="left", expand=True, padx=10)
 
-        ctk.CTkButton(btn_frame, text="📢 Publicar Ranking Semanal", command=self.compartir_ranking_discord, 
+        ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
                       fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
     
     def compartir_ranking_discord(self):
@@ -1044,8 +1137,6 @@ class PerezBoostApp(ctk.CTk):
             elif i == 2: icon = "🥈"
             elif i == 3: icon = "🥉"
             else: icon = f"#{i}"
-            
-            # FORMATO FINAL:
 
             descripcion += f"{icon} **{nombre}** — 🏆 `{puntaje_final} Pts`\n"
             descripcion += f"   ✅ Terminados: `{terminados}`  |  ❌ Drop: `{abandonos}`  |  📊 Nivel: `{liga_promedio}`\n\n"
@@ -1171,31 +1262,70 @@ class PerezBoostApp(ctk.CTk):
     def abrir_ventana_editar_pedido(self):
         sel = self.tabla_pedidos.selection()
         if not sel: return
+
         val = self.tabla_pedidos.item(sel)['values']
         id_r = val[1]
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 520); v.attributes("-topmost", True)
+        
+        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 580); v.attributes("-topmost", True)
+        v.title(f"Editar Pedido #{id_r}")
+        
         entradas = {}
-        campos = [("Booster:", "booster_nombre", val[2]), ("Cuenta:", "user_pass", val[3]), 
-                  ("Inicio:", "fecha_inicio", str(val[5])), ("Entrega:", "fecha_limite", str(val[6]))]
+        campos = [
+            ("Staff:", "booster_nombre", val[2]),
+            ("Elo Inicial:", "elo_inicial", val[3]),
+            ("Cuenta / User:", "user_pass", val[4]), 
+            ("Fecha Inicio (D/M/Y):", "fecha_inicio", val[5]),
+            ("Fecha Entrega (D/M/Y):", "fecha_limite", val[6])
+        ]
+        
         for lab, col, act in campos:
-            ctk.CTkLabel(v, text=lab).pack(); e = ctk.CTkEntry(v, width=250); e.insert(0, act); e.pack(); entradas[col] = e
+            ctk.CTkLabel(v, text=lab, font=("Arial", 12, "bold")).pack(pady=(10, 0))
+            e = ctk.CTkEntry(v, width=280)
+            e.insert(0, act)
+            e.pack(pady=5)
+            entradas[col] = e
+
         def save():
-            actualizar_pedido_db(id_r, {k: e.get() for k, e in entradas.items()}); v.destroy(); self.mostrar_pedidos()
-        ctk.CTkButton(v, text="Guardar", fg_color="#27ae60", command=save).pack(pady=20)
+            try:
+                datos_nuevos = {}
+                for k, e in entradas.items():
+                    valor = e.get().strip()
+
+                    if k in ["fecha_inicio", "fecha_limite"]:
+                        if "/" in valor:
+                            valor = datetime.strptime(valor, "%d/%m/%Y").strftime("%Y-%m-%d")
+                        elif "-" in valor and len(valor) >= 10:
+                            valor = valor.split(' ')[0]
+                    
+                    datos_nuevos[k] = valor
+
+                actualizar_pedido_db(id_r, datos_nuevos)
+                
+                registrar_log("EDICION_PEDIDO", f"Pedido #{id_r} editado manualmente.")
+                v.destroy()
+                self.mostrar_pedidos()
+                
+            except Exception as ex:
+                messagebox.showerror("Error de Formato", f"Revisa las fechas (D/M/Y).\nError: {ex}", parent=v)
+
+        ctk.CTkButton(v, text="💾 Guardar Cambios", fg_color="#27ae60", hover_color="#1e8449",
+                       height=40, font=("Arial", 12, "bold"), command=save).pack(pady=25)
 
     def abrir_ventana_finalizar(self):
         sel = self.tabla_pedidos.selection()
         if not sel: return
+
+        val_fila = self.tabla_pedidos.item(sel)['values']
+        id_r = val_fila[1]
+        nom_booster = val_fila[2]
+
+        tarifas_raw = obtener_config_precios()
+        tarifas = [t[0] for t in tarifas_raw]
         
-        valores_fila = self.tabla_pedidos.item(sel)['values']
-        id_r = valores_fila[1]
-        nom_booster = valores_fila[2]
+        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 520); v.attributes("-topmost", True)
+        v.title(f"Finalizar Orden #{id_r}")
         
-        tarifas = [t[0] for t in obtener_config_precios()]
-        
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 500); v.attributes("-topmost", True)
-        
-        ctk.CTkLabel(v, text="FINALIZAR PEDIDO", font=("Arial", 14, "bold")).pack(pady=(20,10))
+        ctk.CTkLabel(v, text="FINALIZAR PEDIDO", font=("Arial", 16, "bold")).pack(pady=(20,10))
 
         ctk.CTkLabel(v, text="¿En qué Elo quedó la cuenta?").pack()
         cb_div = ctk.CTkOptionMenu(v, values=tarifas, width=250); cb_div.pack(pady=5)
@@ -1209,55 +1339,90 @@ class PerezBoostApp(ctk.CTk):
             variable=var_publicar, fg_color="#5865F2",
             checkbox_height=20, checkbox_width=20
         )
-        chk_discord.pack(pady=(15, 5))
+        chk_discord.pack(pady=(15, 10))
         
         def finish():
             try:
                 val_wr = e_wr.get()
                 if not val_wr:
-                    messagebox.showerror("Error", "El campo WinRate está vacío.", parent=v)
+                    messagebox.showerror("Error", "El WinRate está vacío.", parent=v)
                     return
 
                 wr = float(val_wr)
-
-                if wr < 0 or wr > 100:
-                    messagebox.showerror("Error", "¡El WinRate debe estar entre 0 y 100%!", parent=v)
-                    return
-
                 elo_fin = cb_div.get()
-                c, p, g = calcular_pago_real(elo_fin, wr)
+                fecha_hoy_iso = datetime.now().strftime("%Y-%m-%d")
+
+                conn = conectar(); cursor = conn.cursor()
+                # 1. Obtener precios
+                cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
+                tarifa = cursor.fetchone()
                 
-                if finalizar_pedido_db(id_r, elo_fin, wr, c, p, g, 0, ""):
-                    try:
+                # 2. Obtener racha del mes (total_mes)
+                mes_actual = datetime.now().strftime("%Y-%m")
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pedidos 
+                    WHERE booster_nombre = ? AND estado = 'Terminado' 
+                    AND fecha_fin_real LIKE ?
+                """, (nom_booster, f"{mes_actual}%"))
+                total_mes = (cursor.fetchone()[0] or 0) + 1 # Sumamos el actual
+                conn.close()
 
-                        mes_actual = datetime.now().strftime("%Y-%m")
-                        conn = conectar(); cursor = conn.cursor()
-                        cursor.execute("SELECT COUNT(*) FROM pedidos WHERE booster_nombre = ? AND estado = 'Terminado' AND strftime('%Y-%m', fecha_fin_real) = ?", (nom_booster, mes_actual))
-                        total_mes = cursor.fetchone()[0]; conn.close()
-                        
-                        registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada. Staff: ${p} | Perez: ${g} | WR: {wr}%")
+                if tarifa:
+                    p_cliente, g_perez = float(tarifa[0]), float(tarifa[1])
+                    p_booster = p_cliente - g_perez
+                else:
+                    p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
-                        if var_publicar.get():
+                # 3. Guardar en BD
+                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster):
+
+                    # 4. Bloque de Discord (El que me pasaste)
+                    if var_publicar.get():
+                        try:
                             url = obtener_config_sistema("discord_webhook")
                             if url:
                                 noti = DiscordNotifier(url)
                                 campos_embed = [
-                                    {"name": "👤 Staff", "value": f"**{nom_booster}**\n\n**📌 Quedó en**\n`{elo_fin}`", "inline": True},
-                                    {"name": "🔥 Racha Mes", "value": f"{total_mes} Entregas\n\n**🎯 WinRate**\n`{wr}%`", "inline": True},
-                                    {"name": "💸 Pago Staff", "value": f"__**${p:.2f}**__", "inline": False}
+                                    {
+                                        "name": "👤 Staff", 
+                                        "value": f"**{nom_booster}**\n\n**📌 Quedó en**\n`{elo_fin}`", 
+                                        "inline": True
+                                    },
+                                    {
+                                        "name": "🔥 Racha Mes", 
+                                        "value": f"{total_mes} Entregas\n\n**🎯 WinRate**\n`{wr}%`", 
+                                        "inline": True
+                                    },
+                                    {
+                                        "name": "💸 Pago Staff", 
+                                        "value": f"__**${p_booster:.2f}**__", 
+                                        "inline": False
+                                    }
                                 ]
-                                noti.enviar_notificacion(titulo=f"✅ ORDEN #{id_r} COMPLETADA", descripcion="", color=COLOR_SUCCESS, campos=campos_embed)
-                    except Exception as e: 
-                        print(f"Error notificando: {e}")
-                    
-                    v.destroy(); self.mostrar_pedidos()
+                                noti.enviar_notificacion(
+                                    titulo=f"✅ ORDEN #{id_r} COMPLETADA", 
+                                    descripcion="", 
+                                    color=5763719, # COLOR_SUCCESS
+                                    campos=campos_embed
+                                )
+                        except Exception as e:
+                            print(f"Error notificando: {e}")
+
+                    registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada por {nom_booster}.")
+                    messagebox.showinfo("Éxito", "¡Pedido finalizado!", parent=v)
+                    v.destroy()
+                    self.mostrar_pedidos()
+
+                    if hasattr(self, 'actualizar_dashboard'):
+                        self.actualizar_dashboard()
+                else:
+                    messagebox.showerror("Error", "No se pudo actualizar la base de datos.", parent=v)
 
             except ValueError:
-                messagebox.showerror("Error", "El WinRate debe ser un número (Ej: 85.5)", parent=v)
-            except Exception as e:
-                messagebox.showerror("Error", f"Fallo: {e}", parent=v)
+                messagebox.showerror("Error", "El WinRate debe ser un número.", parent=v)
 
-        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71", width=200, height=40, command=finish).pack(pady=20)
+        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71", 
+                      height=40, font=("Arial", 12, "bold"), command=finish).pack(pady=20)
 
     def abrir_ventana_extender_tiempo(self):
         sel = self.tabla_pedidos.selection()
@@ -1460,14 +1625,14 @@ class PerezBoostApp(ctk.CTk):
             messagebox.showinfo("Seguridad", "✅ Base de datos respaldada con éxito.\nRevisa la carpeta /backups")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo crear el respaldo: {e}")
-            
+
     def abrir_visor_logs(self):
-      
+
         v = ctk.CTkToplevel(self)
         v.title("Registro de Seguridad y Auditoría")
-        self.centrar_ventana(v, 700, 500) 
-        v.attributes("-topmost", True)    
-        v.grab_set()                     
+        self.centrar_ventana(v, 700, 500)
+        v.attributes("-topmost", True)
+        v.grab_set()
 
         header = ctk.CTkFrame(v, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=15)
@@ -1477,24 +1642,22 @@ class PerezBoostApp(ctk.CTk):
         txt_frame = ctk.CTkFrame(v, fg_color="#1a1a1a", corner_radius=10)
         txt_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
-        txt = ctk.CTkTextbox(txt_frame, width=600, height=400, font=("Consolas", 11), 
-                             fg_color="#0f0f0f", text_color="#00ff00", activate_scrollbars=True)
+        txt = ctk.CTkTextbox(txt_frame, width=600, height=400, font=("Consolas", 11), fg_color="#0f0f0f", text_color="#00ff00", activate_scrollbars=True)
         txt.pack(fill="both", expand=True, padx=5, pady=5)
 
-        logs = obtener_logs_db(limite=100) 
-        
+        logs = obtener_logs_db(limite=100)
+
         if not logs:
             txt.insert("0.0", "\n   [ SYSTEM ] No hay registros de actividad reciente.")
         else:
             header_txt = f"{'FECHA/HORA':<20} | {'EVENTO':<18} | DETALLES\n"
             sep = "-"*85 + "\n"
             txt.insert("0.0", header_txt + sep)
-            
+
             for log in logs:
-                fecha_corta = log[0][5:-3] 
+                fecha_corta = log[0][5:-3]
                 linea = f"{fecha_corta:<20} | {log[1]:<18} | {log[2]}\n"
                 txt.insert("end", linea)
-        
         txt.configure(state="disabled")
 
     def on_closing(self):
@@ -1505,7 +1668,7 @@ class PerezBoostApp(ctk.CTk):
             print(f"⚠️ Error en backup al cerrar: {e}")
         try:
             plt.close('all')
-        except: 
+        except:
             pass
         self.destroy()
         print("🔴 Apagado forzoso del sistema.")
