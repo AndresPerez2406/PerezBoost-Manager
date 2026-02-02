@@ -505,18 +505,26 @@ class PerezBoostApp(ctk.CTk):
     def mostrar_inventario(self):
         self.limpiar_pantalla()
         self.configurar_estilo_tabla()
+        
         header = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         header.pack(pady=15, padx=30, fill="x")
         ctk.CTkLabel(header, text="📦 STOCK DISPONIBLE", font=("Arial", 20, "bold")).pack(side="left")
         
         self.entry_busqueda_i = ctk.CTkEntry(header, placeholder_text="Buscar Elo...", width=200)
         self.entry_busqueda_i.pack(side="right")
+        # Vinculamos la búsqueda en tiempo real
+        self.entry_busqueda_i.bind("<KeyRelease>", lambda event: self.filtrar_inventario())
         ctk.CTkButton(header, text="🔍", width=40, command=self.filtrar_inventario).pack(side="right", padx=5)
 
-        cols = ("id_v", "user_pass", "elo", "desc")
+        cols = ("id_v", "elo", "user_pass", "desc")
         self.tabla_inv = ttk.Treeview(self.content_frame, columns=cols, show="headings")
-        for col, txt in zip(cols, ["#", "CUENTA", "ELO", "NOTAS"]):
-            self.tabla_inv.heading(col, text=txt); self.tabla_inv.column(col, anchor="center")
+        
+        headers = ["#", "ELO", "USUARIO / CONTRASEÑA", "NOTAS"]
+        anchos = [50, 120, 300, 200]
+
+        for col, txt, ancho in zip(cols, headers, anchos):
+            self.tabla_inv.heading(col, text=txt)
+            self.tabla_inv.column(col, width=ancho, anchor="center")
 
         self.tabla_inv.pack(padx=30, pady=10, fill="both", expand=True)
         self.filtrar_inventario()
@@ -531,10 +539,12 @@ class PerezBoostApp(ctk.CTk):
     def filtrar_inventario(self):
         query = self.entry_busqueda_i.get().lower()
         for i in self.tabla_inv.get_children(): self.tabla_inv.delete(i)
+        
         self.datos_inventario = obtener_inventario_visual()
+        
         for d in self.datos_inventario:
-            if query == "" or query in d[3].lower():
-                self.tabla_inv.insert("", tk.END, values=(d[0], d[2], d[3], d[4]))
+            if query == "" or query in str(d[3]).lower() or query in str(d[2]).lower():
+                self.tabla_inv.insert("", tk.END, values=(d[0], d[3], d[2], d[4]))
 
     # =========================================================================
     # 6. SECCIÓN: PEDIDOS ACTIVOS
@@ -1010,150 +1020,210 @@ class PerezBoostApp(ctk.CTk):
         self.limpiar_pantalla()
         self.configurar_estilo_tabla()
 
+        # --- CONFIGURACIÓN DE FECHAS ---
+        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        fecha_hoy = datetime.now()
+        mes_actual_idx = fecha_hoy.month - 1
+        anio_actual = fecha_hoy.year
+
+        # --- FRAME PRINCIPAL ---
         main_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         main_frame.pack(expand=True, fill="both", padx=30, pady=20)
 
-        ctk.CTkLabel(main_frame, text="🏆 HALL OF FAME - TOP BOOSTERS 🏆",
-                     font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(pady=(0, 15))
+        # Header
+        header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 15))
+        ctk.CTkLabel(header_frame, text="🏆 HALL OF FAME", font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(side="left")
 
-        try:
-            total_premio = obtener_total_bote_ranking()
-        except:
-            total_premio = 25
-        
-        extra_pedidos = total_premio - 25
+        # Filtro Mes
+        self.combo_mes_rank = ctk.CTkOptionMenu(header_frame, values=meses_nombres, width=140, fg_color="#34495e")
+        self.combo_mes_rank.set(meses_nombres[mes_actual_idx]) 
+        self.combo_mes_rank.pack(side="right")
+        ctk.CTkLabel(header_frame, text="📅 Filtrar Mes:", font=("Arial", 14)).pack(side="right", padx=10)
 
+        # --- SECCIÓN DE PREMIOS (BOTE) ---
         prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
         prize_frame.pack(fill="x", pady=(0, 20), padx=5)
+        self.lbl_bote = ctk.CTkLabel(prize_frame, text="...", font=("Arial", 18, "bold"), text_color="#ecf0f1")
+        self.lbl_bote.pack(pady=15)
 
-        texto_premio = f"💰 BOTE ACUMULADO: ${total_premio} USD 💰\nBase $25 + ${extra_pedidos} por => 60% WR"
-
-        ctk.CTkLabel(prize_frame, text=texto_premio, 
-                     font=("Arial", 18, "bold"), text_color="#ecf0f1").pack(pady=15)
-
-        try:
-
-            pago_total, total_peds, wr_avg = obtener_resumen_mensual_db()
-        except:
-            pago_total, total_peds, wr_avg = 0, 0, 0
-
+        # --- SECCIÓN DE ESTADÍSTICAS ---
         stats_frame = ctk.CTkFrame(main_frame, fg_color="#1a1a1a", border_width=1, border_color="#5865F2")
         stats_frame.pack(fill="x", pady=(0, 20))
         stats_frame.columnconfigure((0,1,2), weight=1)
 
-        ctk.CTkLabel(stats_frame, text="💸 Nómina Staff", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
-        ctk.CTkLabel(stats_frame, text=f"${pago_total:.2f}", font=("Arial", 16, "bold"), text_color="#2ecc71").grid(row=1, column=0, pady=(0,10))
+        # 1. PEDIDOS TOTALES
+        ctk.CTkLabel(stats_frame, text="📦 Pedidos Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
+        self.lbl_totales = ctk.CTkLabel(stats_frame, text="0", font=("Arial", 16, "bold"), text_color="white")
+        self.lbl_totales.grid(row=1, column=0, pady=(0,10))
 
-        ctk.CTkLabel(stats_frame, text="📦 Entregas Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
-        ctk.CTkLabel(stats_frame, text=f"{total_peds}", font=("Arial", 16, "bold"), text_color="white").grid(row=1, column=1, pady=(0,10))
+        # 2. EFICIENCIA (Días Promedio)
+        ctk.CTkLabel(stats_frame, text="⚡ Eficiencia (Días/Pedido)", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
+        self.lbl_eficiencia = ctk.CTkLabel(stats_frame, text="0 Días", font=("Arial", 16, "bold"), text_color="#2ecc71")
+        self.lbl_eficiencia.grid(row=1, column=1, pady=(0,10))
 
+        # 3. WR GLOBAL
         ctk.CTkLabel(stats_frame, text="📊 WR Global", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
-        ctk.CTkLabel(stats_frame, text=f"{wr_avg:.1f}%", font=("Arial", 16, "bold"), text_color="#f1c40f").grid(row=1, column=2, pady=(0,10))
+        self.lbl_wr = ctk.CTkLabel(stats_frame, text="0%", font=("Arial", 16, "bold"), text_color="#f1c40f")
+        self.lbl_wr.grid(row=1, column=2, pady=(0,10))
 
         tabla_frame = ctk.CTkFrame(main_frame, fg_color="#1e1e1e", corner_radius=10)
         tabla_frame.pack(expand=True, fill="both", pady=(0, 20))
+
+        cols = ("Rango", "Staff", "Completados", "High_WR", "Abandonos", "Puntaje")
+        self.tabla_rank = ttk.Treeview(tabla_frame, columns=cols, show="headings", height=8)
+
+        headers = ["Rango", "Staff", "Terminados", "WR => 60%", "Abandonos", "Puntaje"]
+        anchos = [80, 150, 100, 100, 80, 100]
+
+        for col, title, ancho in zip(cols, headers, anchos):
+            self.tabla_rank.heading(col, text=title)
+            self.tabla_rank.column(col, width=ancho, anchor="center")
         
-        columnas = ("Rango", "Staff", "Completados", "Avg WR", "Abandonos", "Puntaje")
-        self.tabla_rank = ttk.Treeview(tabla_frame, columns=columnas, show="headings", height=5)
-        
-        for col in columnas:
-            self.tabla_rank.heading(col, text=col)
-            self.tabla_rank.column(col, width=120, anchor="center")
-        
-        scrollbar = ctk.CTkScrollbar(tabla_frame, orientation="vertical", command=self.tabla_rank.yview)
-        self.tabla_rank.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
         self.tabla_rank.pack(side="left", expand=True, fill="both", padx=5, pady=5)
-
-        datos = obtener_ranking_staff_db()
-        if not datos:
-            self.tabla_rank.insert("", "end", values=("...", "Esperando actividad...", "-", "-", "-", "0 pts"))
-        else:
-            for i, b in enumerate(datos, start=1):
-                if i == 1: color_rank = "🥇 MVP"
-                elif i == 2: color_rank = "🥈"
-                elif i == 3: color_rank = "🥉"
-                else: color_rank = f"#{i}"
-                
-                wr_formateado = f"{b[2]:.1f}%" if b[2] else "0%"
-                fila = (color_rank, b[0], b[1], wr_formateado, b[3], f"{b[4]} pts")
-
-                item = self.tabla_rank.insert("", "end", values=fila)
-                if i == 1:
-                    self.tabla_rank.item(item, tags=("top1",))
         self.tabla_rank.tag_configure("top1", background="#2d2d2d") 
+
+        def actualizar_datos_ranking(event=None):
+            nombre_mes = self.combo_mes_rank.get()
+            num_mes = str(meses_nombres.index(nombre_mes) + 1).zfill(2)
+            filtro = f"{anio_actual}-{num_mes}"
+
+            for item in self.tabla_rank.get_children(): self.tabla_rank.delete(item)
+
+            try:
+                # 1. RECIBIMOS 5 VALORES DE LA DB
+                cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
+                
+                # 2. Cálculos Stats
+                total_pedidos = cant_term + cant_aban
+
+                bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) 
+
+            except Exception as e:
+                print(f"Error calculo stats: {e}")
+                cant_term, total_pedidos, avg_dias, wr_prom, cant_high_wr = 0, 0, 0, 0, 0
+                bote_total = 0.0
+
+            # 3. ACTUALIZAR LABELS
+            self.lbl_totales.configure(text=f"{total_pedidos}") 
+
+            if avg_dias > 0 and avg_dias < 1:
+                texto_eficiencia = "⚡ < 1 Día"
+            else:
+                texto_eficiencia = f"{avg_dias:.1f} Días"
+            self.lbl_eficiencia.configure(text=texto_eficiencia)
+
+            self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
+            
+            self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1/pedido + Bono Calidad)")
+
+            # 4. LLENAR TABLA
+            ranking_data = obtener_ranking_staff_db(filtro) 
+            
+            if not ranking_data:
+                self.tabla_rank.insert("", "end", values=("...", "Sin datos...", "-", "-", "-", "0 pts"))
+            else:
+                for i, b in enumerate(ranking_data, start=1):
+
+                    nombre = b[0]
+                    terminados = b[1]
+                    aportes_wr = b[2]
+                    abandonos = b[3]
+                    puntaje = int(b[4])
+
+                    if i == 1: rango = "🥇 MVP"
+                    elif i == 2: rango = "🥈"
+                    elif i == 3: rango = "🥉"
+                    else: rango = f"#{i}"
+
+                    item = self.tabla_rank.insert("", "end", values=(
+                        rango, 
+                        nombre, 
+                        terminados, 
+                        f"{aportes_wr}",
+                        abandonos, 
+                        f"{puntaje} pts"
+                    ))
+                    
+                    if i == 1: self.tabla_rank.item(item, tags=("top1",))
 
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill="x", pady=10)
         
-        ctk.CTkButton(btn_frame, text="🔄 Actualizar", command=self.mostrar_leaderboard, 
+        ctk.CTkButton(btn_frame, text="🔄 Recargar", command=actualizar_datos_ranking, 
                       fg_color="#1f538d", height=40).pack(side="left", expand=True, padx=10)
 
         ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
                       fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
+
+        # Vincular el evento del menú desplegable
+        self.combo_mes_rank.configure(command=actualizar_datos_ranking)
+
+        actualizar_datos_ranking()
     
     def compartir_ranking_discord(self):
-
         url = obtener_config_sistema("discord_webhook_ranking") 
+        if not url: url = obtener_config_sistema("discord_webhook")
+        
         if not url:
-          
-            url = obtener_config_sistema("discord_webhook")
-            if not url:
-                messagebox.showerror("Error", "No has configurado el Webhook de RANKING en la pestaña 'Tarifas'.")
-                return
-
-        ranking = obtener_ranking_staff_db()
-        if not ranking:
-            messagebox.showinfo("Vacío", "Sin datos para publicar.")
+            messagebox.showerror("Error", "No hay Webhook configurado.")
             return
 
-        descripcion = "**📊 REPORTE MENSUAL DE RENDIMIENTO**\n\n"
+        # 1. Obtener el mes seleccionado en la pantalla
+        mes_nombre = self.combo_mes_rank.get()
+        
+        # 2. Calcular el filtro para la DB
+        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        try:
+            num_mes = str(meses_nombres.index(mes_nombre) + 1).zfill(2)
+            anio = datetime.now().year
+            filtro = f"{anio}-{num_mes}"
+        except:
+            filtro = datetime.now().strftime("%Y-%m")
+
+        # 3. Obtener datos reales de ese mes
+        ranking = obtener_ranking_staff_db(filtro)
+        
+        if not ranking:
+            messagebox.showinfo("Vacío", f"No hay datos en {mes_nombre} para publicar.")
+            return
+
+        # 4. Construir el Embed
+        descripcion = f"**📊 REPORTE OFICIAL - {mes_nombre.upper()} {anio}**\n\n"
         
         for i, b in enumerate(ranking[:10], start=1):
+            nombre, terminados, wr, abandonos, puntaje = b[0], b[1], b[2], b[3], b[4]
 
-            nombre = b[0]
-            terminados = b[1]
-            abandonos = b[3]
-            puntaje_final = b[4]
-
-            puntos_reales_juego = puntaje_final + (abandonos * 10)
-
-            if terminados > 0:
-                promedio_difficulty = puntos_reales_juego / terminados
-            else:
-                promedio_difficulty = 0
+            pts_reales = puntaje + (abandonos * 10)
+            dificultad = pts_reales / terminados if terminados > 0 else 0
             
-            
-            if promedio_difficulty >= 30:
-                liga_promedio = "💎 Diamante Avg" 
-            elif promedio_difficulty >= 13:
-                liga_promedio = "🟢 Esmeralda Avg" 
-            elif promedio_difficulty > 0:
-                liga_promedio = "🔵 Platino Avg"  
-            else:
-                liga_promedio = "⚪ Unranked"
+            if dificultad >= 30: liga = "💎 Diamante" 
+            elif dificultad >= 13: liga = "🟢 Esmeralda" 
+            elif dificultad > 0: liga = "🔵 Platino"  
+            else: liga = "⚪ Unranked"
 
             if i == 1: icon = "🥇"
             elif i == 2: icon = "🥈"
             elif i == 3: icon = "🥉"
             else: icon = f"#{i}"
 
-            descripcion += f"{icon} **{nombre}** — 🏆 `{puntaje_final} Pts`\n"
-            descripcion += f"   ✅ Terminados: `{terminados}`  |  ❌ Drop: `{abandonos}`  |  📊 Nivel: `{liga_promedio}`\n\n"
-
-        descripcion += "_Nivel calculado basado en la dificultad de los pedidos tomados._"
+            descripcion += f"{icon} **{nombre}** — 🏆 `{int(puntaje)} Pts`\n"
+            descripcion += f"   ✅ `{terminados}`  |  ❌ `{abandonos}`  |  Avg WR: `{wr:.1f}%`\n"
+            descripcion += f"   📊 Nivel: **{liga}**\n\n"
 
         try:
             noti = DiscordNotifier(url)
             noti.enviar_notificacion(
-                titulo="🏆 TABLA DE LÍDERES - STAFF",
+                titulo=f"🏆 HALL OF FAME - {mes_nombre.upper()}",
                 descripcion=descripcion,
                 color=0xFFD700,
                 campos=[] 
             )
-            messagebox.showinfo("Éxito", "Ranking enviado a Discord.")
+            messagebox.showinfo("Éxito", f"Ranking de {mes_nombre} enviado a Discord.")
         except Exception as e:
-            messagebox.showerror("Error", f"Fallo Discord: {e}")
+            messagebox.showerror("Error", f"Fallo al enviar: {e}")
             
     # ==========================================
     # 10. GESTIÓN FINANCIERA

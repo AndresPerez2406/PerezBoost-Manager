@@ -520,15 +520,24 @@ def obtener_logs_db(limite=50):
 # SISTEMA LEABOARD
 # ==========================================
 
-def obtener_ranking_staff_db():
+def obtener_ranking_staff_db(filtro_fecha=None):
     conn = conectar(); cursor = conn.cursor()
-    mes_actual = datetime.now().strftime("%Y-%m")
+    
+    if not filtro_fecha:
+        filtro_fecha = datetime.now().strftime("%Y-%m")
 
     query = """
     SELECT b.nombre, 
+           -- 1. Total Terminados
            COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
-           COALESCE(AVG(CASE WHEN p.estado = 'Terminado' THEN p.wr END), 0) as avg_wr,
+           
+           -- 2. CAMBIO AQUÍ: Contar cuántos tuvieron WR >= 60 (Los que suman al Bote)
+           COUNT(CASE WHEN p.estado = 'Terminado' AND p.wr >= 60 THEN 1 END) as high_wr,
+           
+           -- 3. Abandonos
            COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
+           
+           -- 4. Puntaje (Score)
            COALESCE(SUM(CASE 
                WHEN p.estado = 'Terminado' THEN 
                    COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
@@ -538,10 +547,14 @@ def obtener_ranking_staff_db():
     LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
     WHERE p.fecha_inicio LIKE ? 
     GROUP BY b.id, b.nombre 
-    ORDER BY score DESC LIMIT 5
+    HAVING (terminados > 0 OR abandonos > 0)
+    ORDER BY score DESC LIMIT 10
     """
-    cursor.execute(query, (f"{mes_actual}%",))
-    ranking = cursor.fetchall(); conn.close(); return ranking
+    
+    cursor.execute(query, (f"{filtro_fecha}%",))
+    ranking = cursor.fetchall()
+    conn.close()
+    return ranking
 
 def obtener_total_bote_ranking():
     conn = conectar()
@@ -579,35 +592,42 @@ def obtener_pedidos_mes_actual_db():
     conn.close()
     return res[0] if res else 0
 
-def obtener_resumen_mensual_db():
+def obtener_resumen_mensual_db(filtro_fecha=None):
     """
-    Resumen para el Hall of Fame.
-    CORREGIDO: Ahora filtra estrictamente por 'fecha_inicio' del mes actual.
-    Así coincide con el Ranking y el Bote.
+    Retorna: (Terminados, Abandonados, Avg WR, High WR, PROMEDIO_DIAS)
     """
     conn = conectar()
     cursor = conn.cursor()
 
-    mes_actual = datetime.now().strftime("%Y-%m")
+    if not filtro_fecha:
+        filtro_fecha = datetime.now().strftime("%Y-%m")
 
     query = """
         SELECT 
-            SUM(pago_booster), 
-            COUNT(*), 
-            AVG(wr) 
+            COUNT(CASE WHEN estado = 'Terminado' THEN 1 END),
+            COUNT(CASE WHEN estado = 'Abandonado' THEN 1 END),
+            COALESCE(AVG(CASE WHEN estado = 'Terminado' THEN wr END), 0),
+            COUNT(CASE WHEN estado = 'Terminado' AND wr >= 60 THEN 1 END),
+            
+            -- CÁLCULO DE DÍAS PROMEDIO (Eficiencia)
+            COALESCE(AVG(
+                CASE WHEN estado = 'Terminado' THEN 
+                    JULIANDAY(fecha_fin_real) - JULIANDAY(fecha_inicio) 
+                END
+            ), 0)
+            
         FROM pedidos 
-        WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ?  -- EL CAMBIO CLAVE: Usamos fecha_inicio
+        WHERE fecha_inicio LIKE ? AND estado IN ('Terminado', 'Abandonado')
     """
     
-    cursor.execute(query, (f"{mes_actual}%",))
+    cursor.execute(query, (f"{filtro_fecha}%",))
     res = cursor.fetchone()
     conn.close()
 
-    if res and res[1] > 0:
-        return res
+    if res:
+        return res 
     else:
-        return (0, 0, 0)
+        return (0, 0, 0, 0, 0)
     
 def obtener_ranking_db():
     conn = conectar()
