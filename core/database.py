@@ -333,21 +333,32 @@ def eliminar_precio_db(div):
 # SECCIÓN 6: DASHBOARD Y REPORTES
 # ==========================================
 
-def obtener_resumen_mensual_db():
-    conn = conectar(); cursor = conn.cursor()
-    mes_actual = datetime.now().strftime("%Y-%m")
+def obtener_resumen_financiero_real(filtro_fecha=None):
+    """
+    Calcula el dinero REAL visualizando el descuento del Bote.
+    Retorna: (Total Pago Boosters, Ganancia Perez (NETA), Total Pedidos)
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+    
+    if not filtro_fecha:
+        filtro_fecha = datetime.now().strftime("%Y-%m")
 
     cursor.execute("""
-        SELECT SUM(pago_booster), SUM(ganancia_empresa), COUNT(*)
+        SELECT 
+            SUM(pago_booster), 
+            SUM(ganancia_empresa) - COUNT(*), 
+            COUNT(*)
         FROM pedidos 
         WHERE estado = 'Terminado' 
-        AND fecha_fin_real LIKE ?
-    """, (f"{mes_actual}%",))
+        AND fecha_inicio LIKE ?  -- Usamos fecha_inicio para consistencia total V9.5
+    """, (f"{filtro_fecha}%",))
     
     res = cursor.fetchone()
     conn.close()
     
     if res and res[2] > 0:
+ 
         return (res[0] or 0.0, res[1] or 0.0, res[2])
     return (0.0, 0.0, 0)
 
@@ -373,11 +384,11 @@ def obtener_kpis_mensuales():
     mes_actual = datetime.now().strftime("%Y-%m")
 
     cursor.execute("""
-        SELECT SUM(ganancia_empresa), COUNT(*) 
+        SELECT SUM(ganancia_empresa) - COUNT(*), COUNT(*) 
         FROM pedidos 
         WHERE estado = 'Terminado' 
-        AND strftime('%Y-%m', fecha_fin_real) = ?
-    """, (mes_actual,))
+        AND fecha_inicio LIKE ?
+    """, (f"{mes_actual}%",))
     
     datos = cursor.fetchone()
     conn.close()
@@ -403,7 +414,6 @@ def obtener_conteo_stock():
 def obtener_conteo_pedidos_activos():
     conn = conectar()
     cursor = conn.cursor()
- 
     cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'En progreso'")
     res = cursor.fetchone()
     conn.close()
@@ -427,11 +437,11 @@ def obtener_ganancia_proyectada():
             if elo_clean in tarifas:
                 total += tarifas[elo_clean]
             else:
-                
                 for div, margen in tarifas.items():
                     if div.startswith(elo_clean[0]):
                         total += margen
                         break
+        total = total - len(pedidos)
         return float(total)
     except:
         return 0.0
@@ -447,15 +457,17 @@ def obtener_datos_reporte_avanzado(mes_nombre, booster_nombre):
         "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08",
         "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
     }
-    
-    query = "SELECT * FROM pedidos WHERE estado IN ('Terminado', 'Abandonado')"
+
+    query = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
+
     params = []
     
     if mes_nombre != "Todos":
         mes_num = meses_dict.get(mes_nombre)
+        anio_actual = datetime.now().year
 
-        query += " AND strftime('%m', fecha_fin_real) = ?"
-        params.append(mes_num)
+        query += " AND fecha_inicio LIKE ?"
+        params.append(f"{anio_actual}-{mes_num}%")
         
     if booster_nombre != "Todos":
         query += " AND booster_nombre = ?"
@@ -492,7 +504,7 @@ def obtener_config_sistema(clave):
     finally: conn.close()
 
 # ==========================================
-# SISTEMA DE AUDITORÍA (LOGS)
+# SECCIÓN 8: SISTEMA DE AUDITORÍA (LOGS)
 # ==========================================
 
 def registrar_log(evento, detalles):
@@ -517,7 +529,7 @@ def obtener_logs_db(limite=50):
     return datos
 
 # ==========================================
-# SISTEMA LEABOARD
+# SECCIÓN 9:SISTEMA LEABOARD
 # ==========================================
 
 def obtener_ranking_staff_db(filtro_fecha=None):
@@ -648,29 +660,43 @@ def obtener_ranking_db():
     return res
 
 # ==========================================
-# SISTEMA PAGOS A BOOSTERS
+# SECCIÓN 10: SISTEMA PAGOS A BOOSTERS
 # ==========================================
 
-def obtener_balance_general_db():
+def obtener_balance_general_db(filtro_fecha=None):
+    """
+    Retorna: (Utilidad Bruta, Total Cliente, Total Booster, Cantidad Pedidos Terminados)
+    Filtra por FECHA DE INICIO para coincidir con Ranking y Reportes.
+    """
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    query = """
         SELECT 
             SUM(pago_cliente), 
             SUM(pago_booster),
-            SUM(ganancia_empresa)
+            SUM(ganancia_empresa),
+            COUNT(*)
         FROM pedidos 
         WHERE estado = 'Terminado'
-    """)
+    """
+    
+    params = []
+
+    if filtro_fecha:
+        query += " AND fecha_inicio LIKE ?"
+        params.append(f"{filtro_fecha}%")
+        
+    cursor.execute(query, params)
     res = cursor.fetchone()
     conn.close()
-    
-    total_cli = res[0] if res[0] is not None else 0
-    total_boo = res[1] if res[1] is not None else 0
+
+    total_cli = res[0] if res[0] is not None else 0.0
+    total_boo = res[1] if res[1] is not None else 0.0
     utilidad = res[2] if res[2] is not None else (total_cli - total_boo)
+    cantidad = res[3] if res[3] is not None else 0
     
-    return utilidad, total_cli, total_boo
+    return utilidad, total_cli, total_boo, cantidad
 
 def obtener_saldos_pendientes_db():
     conn = conectar()

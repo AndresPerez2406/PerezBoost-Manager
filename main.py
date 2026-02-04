@@ -21,7 +21,8 @@ from core.database import (
     obtener_kpis_mensuales, registrar_log, obtener_logs_db, obtener_ranking_staff_db,
     obtener_pedidos_mes_actual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
     obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
-    obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db
+    obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
+    obtener_resumen_financiero_real
 
     
 )
@@ -177,7 +178,19 @@ class PerezBoostApp(ctk.CTk):
         n_pedidos = obtener_conteo_pedidos_activos()
         n_stock = obtener_conteo_stock()
         proyeccion = obtener_ganancia_proyectada()
-        profit_diario = obtener_profit_diario_db()
+        
+        profit_bruto_hoy = obtener_profit_diario_db()
+
+        try:
+            conn = conectar(); cursor = conn.cursor()
+            hoy_str = datetime.now().strftime("%Y-%m-%d")
+            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado='Terminado' AND fecha_fin_real LIKE ?", (f"{hoy_str}%",))
+            cantidad_hoy = cursor.fetchone()[0]
+            conn.close()
+        except: cantidad_hoy = 0
+
+        profit_neto_hoy = profit_bruto_hoy - float(cantidad_hoy)
+
         ganancia_mes, terminados_mes = obtener_kpis_mensuales()
         criticos, proximos = self.calcular_resumen_emergencias()
 
@@ -209,8 +222,7 @@ class PerezBoostApp(ctk.CTk):
         self.crear_card(cards_frame, "📦 STOCK", f"{n_stock}", col_stock, 0, 0)
         self.crear_card(cards_frame, "⚔️ EN PROGRESO", f"{n_pedidos}", "#3498db", 0, 1)
         self.crear_card(cards_frame, "✅ TERMINADOS", f"{terminados_mes}", "#9b59b6", 0, 2)
-
-        self.crear_card(cards_frame, "💵 PROFIT HOY", f"${profit_diario:,.2f}", "#27ae60", 1, 0)
+        self.crear_card(cards_frame, "💵 PROFIT HOY", f"${profit_neto_hoy:,.2f}", "#27ae60", 1, 0)
         
         self.crear_card(cards_frame, "💰 PROYECCIÓN", f"${proyeccion:,.2f}", "#00b894", 1, 1) 
         self.crear_card(cards_frame, "⚡ EFICIENCIA", "1.2 d", "#e67e22", 1, 2)
@@ -225,12 +237,12 @@ class PerezBoostApp(ctk.CTk):
                       fg_color="#1f538d", height=45, width=200).pack(side="left", padx=10)
 
     def abrir_reporte_diario(self):
-        """Genera el reporte Full Audit blindado contra errores de formato."""
         hoy_str = datetime.now().strftime("%Y-%m-%d")
         conn = conectar()
         cursor = conn.cursor()
         
         try:
+
             cursor.execute("""
                 SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr,
                        fecha_inicio, fecha_fin_real,
@@ -240,10 +252,10 @@ class PerezBoostApp(ctk.CTk):
             """, (hoy_str,))
             
             pedidos_hoy = cursor.fetchall()
-            sum_ganancia, sum_staff, sum_ventas = 0.0, 0.0, 0.0
+            sum_ganancia, sum_staff, sum_ventas, aporte_bote = 0.0, 0.0, 0.0, 0.0
 
             reporte = (
-                f"📊 REPORTE DE CIERRE DIARIO\n"
+                f"📊 REPORTE DE CIERRE DIARIO - V9.5\n"
                 f"📅 Fecha: {datetime.now().strftime('%d/%m/%Y')}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
@@ -262,41 +274,41 @@ class PerezBoostApp(ctk.CTk):
 
                 cobro = clean_f(cobro_raw)
                 pago = clean_f(pago_raw)
-                ganancia = clean_f(ganancia_raw)
+                g_bruta = clean_f(ganancia_raw)
 
-                if cobro == 0 and (pago > 0 or ganancia > 0):
-                    cobro = pago + ganancia
+                g_neta = g_bruta - 1.0
+                bote_pedido = 1.0
+
+                if cobro == 0 and (pago > 0 or g_bruta > 0):
+                    cobro = pago + g_bruta
 
                 sum_ventas += cobro
                 sum_staff += pago
-                sum_ganancia += ganancia
+                sum_ganancia += g_neta
+                aporte_bote += bote_pedido
 
                 try:
                     s_ini = str(f_ini).split(' ')[0]
                     s_fin = str(f_fin).split(' ')[0]
-                    try:
-                        d1 = datetime.strptime(s_ini, "%Y-%m-%d")
-                        d2 = datetime.strptime(s_fin, "%Y-%m-%d")
-                    except:
-                        d1 = datetime.strptime(s_ini, "%d/%m/%Y")
-                        d2 = datetime.strptime(s_fin, "%d/%m/%Y")
-                    
+                    try: d1 = datetime.strptime(s_ini, "%Y-%m-%d"); d2 = datetime.strptime(s_fin, "%Y-%m-%d")
+                    except: d1 = datetime.strptime(s_ini, "%d/%m/%Y"); d2 = datetime.strptime(s_fin, "%d/%m/%Y")
                     dias = (d2 - d1).days
                     duracion_txt = f"{dias} días" if dias > 0 else "⚡ <24h"
-                except:
-                    duracion_txt = "N/A"
+                except: duracion_txt = "N/A"
 
                 reporte += f"📦 ORDEN #{p_id} | {str(staff).upper()}\n"
                 reporte += f"   ├─ 🎮 Cuenta: {cuenta} ({e_ini} ➔ {e_fin})\n"
                 reporte += f"   ├─ ⏳ Tiempo: {duracion_txt} | WR: {wr}%\n"
-                reporte += f"   └─ 💰 Neto: +${ganancia:.2f} (Venta: ${cobro:.2f})\n"
+                reporte += f"   └─ 💰 Neto: +${g_neta:.2f} (Bote: $1.00)\n" 
                 reporte += f"────────────────────────────────────\n"
 
             reporte += (
-                f"\n💵 TOTALES DEL DÍA:\n"
-                f"   VENTAS BRUTAS:  ${sum_ventas:,.2f}\n"
-                f"   COSTO STAFF:   -${sum_staff:,.2f}\n"
-                f"   PROFIT NETO:   +${sum_ganancia:,.2f}\n"
+                f"\n💵 BALANCE DEL DÍA:\n"
+                f"   VENTAS TOTALES:   ${sum_ventas:,.2f}\n"
+                f"   PAGO STAFF:      -${sum_staff:,.2f}\n"
+                f"   APORTE RANKING:     -${aporte_bote:,.2f}\n"
+                f"   --------------------------------\n"
+                f"   PROFIT NETO:     +${sum_ganancia:,.2f} (Bolsillo)\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             )
 
@@ -310,13 +322,12 @@ class PerezBoostApp(ctk.CTk):
             txt_area.pack(pady=20)
             txt_area.configure(state="disabled")
 
-            ctk.CTkButton(v, text="📋 Copiar para Discord/WhatsApp", fg_color="#2ecc71", width=250,
+            ctk.CTkButton(v, text="📋 Copiar Reporte", fg_color="#2ecc71", width=250,
                           command=lambda: [self.clipboard_clear(), self.clipboard_append(reporte), 
-                                           messagebox.showinfo("Copiado", "Reporte en el portapapeles")]).pack(pady=10)
+                                           messagebox.showinfo("Listo", "Copiado al portapapeles")]).pack(pady=10)
 
         except Exception as e:
-            messagebox.showerror("Error", f"Error en reporte: {e}")
-            print(f"Error detallado reporte: {e}")
+            messagebox.showerror("Error", f"Error reporte: {e}")
         finally: 
             conn.close()
             
@@ -776,7 +787,7 @@ class PerezBoostApp(ctk.CTk):
 
         filtros_frame = ctk.CTkFrame(main_container, fg_color="#1a1a1a", corner_radius=15)
         filtros_frame.pack(fill="x", pady=(0, 20))
-        ctk.CTkLabel(filtros_frame, text="📊 ANALÍTICA AVANZADA", font=("Arial", 16, "bold")).pack(side="left", padx=20)
+        ctk.CTkLabel(filtros_frame, text="📊 ANALÍTICA FINANCIERA", font=("Arial", 16, "bold")).pack(side="left", padx=20)
         
         self.combo_mes = ctk.CTkOptionMenu(filtros_frame, width=120,
             values=["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
@@ -789,7 +800,7 @@ class PerezBoostApp(ctk.CTk):
         self.combo_booster_rep.pack(side="left", padx=10)
 
         ctk.CTkButton(filtros_frame, text="Calcular", width=100, command=self.actualizar_analitica).pack(side="left", padx=10)
-        ctk.CTkButton(filtros_frame, text="📥 Exportar Excel Pro", fg_color="#1d6f42", hover_color="#145231",
+        ctk.CTkButton(filtros_frame, text="📥 Exportar Excel", fg_color="#1d6f42", hover_color="#145231",
                       command=self.exportar_excel_avanzado).pack(side="right", padx=20)
 
         self.graficos_frame = ctk.CTkFrame(main_container, fg_color="#1a1a1a", height=280)
@@ -801,12 +812,25 @@ class PerezBoostApp(ctk.CTk):
 
         table_frame = ctk.CTkFrame(main_container, fg_color="transparent")
         table_frame.pack(fill="both", expand=True, pady=10)
-        cols = ("booster", "elo", "demora", "pago_b", "ganancia_p", "total")
+
+        cols = ("booster", "elo", "demora", "pago_b", "ganancia_p", "bote", "total")
         self.tabla_rep = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
-        headers = {"booster": "STAFF", "elo": "ELO FINAL", "demora": "DÍAS", "pago_b": "PAGO STAFF", "ganancia_p": "MI GANANCIA", "total": "TOTAL CLIENTE"}
-        for c in cols:
+        
+        headers = {
+            "booster": "STAFF", 
+            "elo": "ELO FINAL", 
+            "demora": "DÍAS", 
+            "pago_b": "PAGO STAFF", 
+            "ganancia_p": "MI NETO", 
+            "bote": "BOTE",          
+            "total": "TOTAL CLI"
+        }
+        
+        anchos = [120, 100, 60, 100, 100, 80, 100]
+        
+        for c, w in zip(cols, anchos):
             self.tabla_rep.heading(c, text=headers[c])
-            self.tabla_rep.column(c, width=100, anchor="center")
+            self.tabla_rep.column(c, width=w, anchor="center")
 
         scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=self.tabla_rep.yview)
         self.tabla_rep.configure(yscrollcommand=scrollbar.set)
@@ -816,83 +840,76 @@ class PerezBoostApp(ctk.CTk):
         self.actualizar_analitica()
 
     def actualizar_analitica(self):
-
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
         for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
         booster_seleccionado = self.combo_booster_rep.get()
         datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), booster_seleccionado)
-        
+
         ganancia_neta_perez = 0.0
         pago_total_staff = 0.0
+        total_bote = 0.0
         conteo_terminados = 0
         dias_totales = 0
 
         def limpiar_dinero(valor):
             try:
                 if valor is None or valor == "": return 0.0
-                limpio = str(valor).replace('$', '').replace(',', '').strip()
-                return float(limpio)
-            except:
-                return 0.0
+                return float(str(valor).replace('$', '').replace(',', '').strip())
+            except: return 0.0
 
         if datos:
             for r in datos:
 
-                if str(r[7]).upper() == 'TERMINADO':
-                    conteo_terminados += 1
+                conteo_terminados += 1
 
-                    g_row = limpiar_dinero(r[13])
-                    p_row = limpiar_dinero(r[12])
+                g_bruta = limpiar_dinero(r[13]) 
+                p_row = limpiar_dinero(r[12])   
 
-                    t_cli = g_row + p_row
-                    
-                    ganancia_neta_perez += g_row
-                    pago_total_staff += p_row
+                bote_row = 1.0 
+                g_neta = g_bruta - bote_row
+                t_cli = g_bruta + p_row 
+                
+                ganancia_neta_perez += g_neta
+                pago_total_staff += p_row
+                total_bote += bote_row
 
-                    try:
-                        if r[5] and r[10]:
-                            str_ini = str(r[5]).split(' ')[0]
-                            str_fin = str(r[10]).split(' ')[0]
-                            try:
-                                ini = datetime.strptime(str_ini, "%Y-%m-%d")
-                                fin = datetime.strptime(str_fin, "%Y-%m-%d")
-                            except:
-                                ini = datetime.strptime(str_ini, "%d/%m/%Y")
-                                fin = datetime.strptime(str_fin, "%d/%m/%Y")
-                            
-                            dias = (fin - ini).days
-                            dias_final = dias if dias > 0 else 1
-                            dias_totales += dias_final
-                            d_txt = f"{dias_final} d"
-                        else: 
-                            d_txt = "N/A"
-                    except:
-                        d_txt = "-"
-                    
-                    self.tabla_rep.insert("", "end", values=(
-                        r[2],   
-                        r[8],   
-                        d_txt,   
-                        f"${p_row:.2f}", 
-                        f"${g_row:.2f}", 
-                        f"${t_cli:.2f}" 
-                    ))
+                try:
+                    if r[5] and r[10]:
+                        str_ini = str(r[5])[:10]
+                        str_fin = str(r[10])[:10]
+                        try: ini = datetime.strptime(str_ini, "%Y-%m-%d"); fin = datetime.strptime(str_fin, "%Y-%m-%d")
+                        except: ini = datetime.strptime(str_ini, "%d/%m/%Y"); fin = datetime.strptime(str_fin, "%d/%m/%Y")
+                        dias = (fin - ini).days
+                        dias_final = dias if dias > 0 else 1
+                        dias_totales += dias_final
+                        d_txt = f"{dias_final} d"
+                    else: d_txt = "N/A"
+                except: d_txt = "-"
+
+                self.tabla_rep.insert("", "end", values=(
+                    r[2], r[8], d_txt, 
+                    f"${p_row:.2f}", 
+                    f"${g_neta:.2f}", 
+                    f"${bote_row:.2f}",
+                    f"${t_cli:.2f}"
+                ))
 
         promedio = dias_totales / conteo_terminados if conteo_terminados > 0 else 0
 
-        self.crear_card_mini(self.kpi_frame, "PAGO BOOSTERS", f"${pago_total_staff:.2f}", "#3498db", 0)
-        self.crear_card_mini(self.kpi_frame, "GANANCIA PEREZ", f"${ganancia_neta_perez:.2f}", "#2ecc71", 1)
-        self.crear_card_mini(self.kpi_frame, "PEDIDOS", f"{conteo_terminados}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "PROM. DÍAS", f"{promedio:.1f} d", "#e67e22", 3)
+        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${pago_total_staff:.2f}", "#3498db", 0)
+        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${ganancia_neta_perez:.2f}", "#2ecc71", 1)
+        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${total_bote:.2f}", "#f1c40f", 2)
+        self.crear_card_mini(self.kpi_frame, "PEDIDOS", f"{conteo_terminados}", "#9b59b6", 3)
+        self.crear_card_mini(self.kpi_frame, "EFICIENCIA", f"{promedio:.1f} d", "#e67e22", 4)
 
-        if ganancia_neta_perez > 0 or pago_total_staff > 0:
-            self.dibujar_grafico_financiero(ganancia_neta_perez, pago_total_staff, booster_seleccionado)
+        if conteo_terminados > 0:
+            self.dibujar_grafico_financiero(ganancia_neta_perez, pago_total_staff, total_bote, booster_seleccionado)
         else:
             ctk.CTkLabel(self.graficos_frame, text="Sin datos para graficar", text_color="gray").pack(expand=True)
 
-    def dibujar_grafico_financiero(self, total_perez, total_staff, nombre_filtro):
+    def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
         plt.close('all')
         plt.rcParams.update({
             'figure.facecolor': '#1a1a1a', 'axes.facecolor': '#1a1a1a',
@@ -901,22 +918,26 @@ class PerezBoostApp(ctk.CTk):
         })
 
         fig, ax = plt.subplots(figsize=(6, 2.8), dpi=100)
-        label_izquierda = "Boosters" if nombre_filtro == "Todos" else nombre_filtro
-        categorias = [label_izquierda, 'Perez']
-        valores = [total_staff, total_perez]
-        colores = ['#3498db', '#2ecc71'] 
+        
+        label_izquierda = "Staff Total" if nombre_filtro == "Todos" else nombre_filtro
+
+        categorias = [label_izquierda, 'Perez (Neto)', 'Bote Ranking']
+        valores = [total_staff, total_perez, total_bote]
+        colores = ['#3498db', '#2ecc71', '#f1c40f']
 
         barras = ax.bar(categorias, valores, color=colores, width=0.5, zorder=3)
 
-        ax.set_title(f'REPORTE: {label_izquierda.upper()} VS PEREZ', fontsize=11, fontweight='bold', pad=15)
-        ax.set_ylabel('Monto USD ($)', fontsize=9, fontweight='bold')
+        ax.set_title(f'DISTRIBUCIÓN FINANCIERA: {label_izquierda.upper()}', fontsize=11, fontweight='bold', pad=15)
+        ax.set_ylabel('USD ($)', fontsize=9, fontweight='bold')
         ax.grid(axis='y', linestyle='--', alpha=0.3, zorder=0)
 
         for b in barras:
-            ax.annotate(f'${b.get_height():,.2f}', 
-                        xy=(b.get_x() + b.get_width()/2, b.get_height()),
-                        xytext=(0, 5), textcoords="offset points", 
-                        ha='center', va='bottom', weight='bold', fontsize=9)
+            height = b.get_height()
+            if height > 0: 
+                ax.annotate(f'${height:,.2f}', 
+                            xy=(b.get_x() + b.get_width()/2, height),
+                            xytext=(0, 5), textcoords="offset points", 
+                            ha='center', va='bottom', weight='bold', fontsize=9, color="white")
 
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -928,14 +949,21 @@ class PerezBoostApp(ctk.CTk):
         canvas_widget.pack(fill="both", expand=True)
         canvas.draw()
 
+    def crear_card_mini(self, master, titulo, valor, color, col):
+        card = ctk.CTkFrame(master, fg_color="#1a1a1a", border_width=1, border_color=color)
+        card.grid(row=0, column=col, padx=5, pady=5, sticky="nsew") 
+        master.grid_columnconfigure(col, weight=1)
+        ctk.CTkLabel(card, text=titulo, font=("Arial", 10, "bold"), text_color=color).pack(pady=(8,0))
+        ctk.CTkLabel(card, text=valor, font=("Arial", 16, "bold"), text_color="white").pack(pady=(2,8))
+
     def exportar_excel_avanzado(self):
-        """Exporta el reporte sumando Staff y Perez para el Total."""
+        """Exporta el reporte ajustado a V9.5 (Ganancia Neta)."""
         import pandas as pd
         from datetime import datetime
         
         mes = self.combo_mes.get()
         booster = self.combo_booster_rep.get()
-        nombre_sugerido = f"Reporte_{mes}_{booster.replace(' ', '_')}.xlsx"
+        nombre_sugerido = f"Reporte_V9.5_{mes}_{booster.replace(' ', '_')}.xlsx"
         
         datos = obtener_datos_reporte_avanzado(mes, booster)
         if not datos: 
@@ -947,70 +975,71 @@ class PerezBoostApp(ctk.CTk):
 
         lista_procesada = []
         for r in datos:
-            if r[7] == 'Terminado':
+            if str(r[7]).upper() == 'TERMINADO':
 
                 try:
                     if r[5] and r[10]:
-                        fmt = "%Y-%m-%d %H:%M"
-                        ini = datetime.strptime(str(r[5])[:16], fmt)
-                        fin = datetime.strptime(str(r[10])[:16], fmt)
-                        dias = (fin - ini).days or 1
+                        str_ini = str(r[5])[:10] 
+                        str_fin = str(r[10])[:10]
+                        try: ini = datetime.strptime(str_ini, "%Y-%m-%d")
+                        except: ini = datetime.strptime(str_ini, "%d/%m/%Y")
+                        try: fin = datetime.strptime(str_fin, "%Y-%m-%d")
+                        except: fin = datetime.strptime(str_fin, "%d/%m/%Y")
+                        
+                        dias = (fin - ini).days
+                        dias = dias if dias > 0 else 1
                     else: dias = 1
                 except: dias = 1
 
                 val_staff = float(r[12] or 0)
-                val_perez = float(r[13] or 0)
-                val_total = val_staff + val_perez 
+                val_perez_bruto = float(r[13] or 0)
+
+                val_perez_neto = val_perez_bruto - 1.0
+                val_bote = 1.0
+                val_total_cliente = val_staff + val_perez_bruto
 
                 lista_procesada.append({
                     "Booster": r[2],
-                    "Elo": r[8],
+                    "Elo Final": r[8],
                     "WR": f"{r[9]}%",
-                    "Dias": dias,
-                    "C_STF": val_staff,
-                    "C_PRZ": val_perez,
-                    "C_TOT": val_total
+                    "Días": dias,
+                    "PAGO STAFF": val_staff,
+                    "GANANCIA NETA": val_perez_neto, 
+                    "APORTE BOTE": val_bote,         
+                    "TOTAL CLIENTE": val_total_cliente
                 })
 
-        if not lista_procesada: return
+        if not lista_procesada: 
+            messagebox.showinfo("Info", "No hay pedidos terminados para exportar.")
+            return
         
         df = pd.DataFrame(lista_procesada)
 
-        sum_stf = df["C_STF"].sum()
-        sum_prz = df["C_PRZ"].sum()
-        sum_tot = df["C_TOT"].sum()
-
+        totales = df.sum(numeric_only=True)
         row_total = pd.DataFrame([{
-            "Booster": "TOTAL ACUMULADO >>", "Elo": "", "WR": "", "Dias": "",
-            "C_STF": sum_stf, "C_PRZ": sum_prz, "C_TOT": sum_tot
+            "Booster": "TOTALES >>", "Elo Final": "", "WR": "", "Días": "",
+            "PAGO STAFF": totales["PAGO STAFF"],
+            "GANANCIA NETA": totales["GANANCIA NETA"],
+            "APORTE BOTE": totales["APORTE BOTE"],
+            "TOTAL CLIENTE": totales["TOTAL CLIENTE"]
         }])
         df = pd.concat([df, row_total], ignore_index=True)
 
-        df.columns = [
-            "Booster", "Elo Final", "WinRate", "Días",
-            "PAGO STAFF ($)", "GANANCIA PEREZ ($)", "TOTAL SERVER ($)"
-        ]
-
-        df.index = [""] * len(df)
-
         try:
             with pd.ExcelWriter(ruta, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Cierre')
-                ws = writer.sheets['Cierre']
-                ws['A1'] = ""
-                ws.column_dimensions['A'].width = 25
-                ws.column_dimensions['G'].width = 20
+                df.to_excel(writer, sheet_name='Cierre_Mes', index=False)
+
+                ws = writer.sheets['Cierre_Mes']
+                for col in ['E', 'F', 'G', 'H']: 
+                    for cell in ws[col]:
+                        cell.number_format = '$ #,##0.00'
+                
+                ws.column_dimensions['A'].width = 20
+                ws.column_dimensions['H'].width = 18
             
-            messagebox.showinfo("Éxito", "Reporte generado.")
+            messagebox.showinfo("Éxito", "Reporte Excel V9.5 generado.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
-
-    def crear_card_mini(self, master, titulo, valor, color, col):
-        card = ctk.CTkFrame(master, fg_color="#1a1a1a", border_width=1, border_color=color)
-        card.grid(row=0, column=col, padx=10, pady=5, sticky="nsew")
-        master.grid_columnconfigure(col, weight=1)
-        ctk.CTkLabel(card, text=titulo, font=("Arial", 11, "bold"), text_color=color).pack(pady=(10,0))
-        ctk.CTkLabel(card, text=valor, font=("Arial", 18, "bold")).pack(pady=(5,10))
     
     # =========================================================================
     # 9. SECCIÓN: LEABOARD
@@ -1096,7 +1125,7 @@ class PerezBoostApp(ctk.CTk):
                 cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
                 
                 # 2. Cálculos Stats
-                total_pedidos = cant_term + cant_aban
+                total_pedidos = cant_term
 
                 bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) 
 
@@ -1116,7 +1145,7 @@ class PerezBoostApp(ctk.CTk):
 
             self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
             
-            self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1/pedido + Bono Calidad)")
+            self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1 Pedido + $1 Bono WR)")
 
             # 4. LLENAR TABLA
             ranking_data = obtener_ranking_staff_db(filtro) 
@@ -1157,7 +1186,6 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
                       fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
 
-        # Vincular el evento del menú desplegable
         self.combo_mes_rank.configure(command=actualizar_datos_ranking)
 
         actualizar_datos_ranking()
@@ -1170,10 +1198,8 @@ class PerezBoostApp(ctk.CTk):
             messagebox.showerror("Error", "No hay Webhook configurado.")
             return
 
-        # 1. Obtener el mes seleccionado en la pantalla
+        # 1. Obtener el mes y año
         mes_nombre = self.combo_mes_rank.get()
-        
-        # 2. Calcular el filtro para la DB
         meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         try:
@@ -1183,26 +1209,30 @@ class PerezBoostApp(ctk.CTk):
         except:
             filtro = datetime.now().strftime("%Y-%m")
 
-        # 3. Obtener datos reales de ese mes
+        # 2. Obtener Datos Globales para el Bote
+        try:
+            cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
+            # Justificación del Bote: $1 por cada terminado + $1 por cada High WR
+            total_bote = (cant_term * 1.0) + (cant_high_wr * 1.0)
+        except:
+            cant_term, cant_high_wr, total_bote = 0, 0, 0.0
+
+        # 3. Obtener Ranking de Staff
         ranking = obtener_ranking_staff_db(filtro)
-        
         if not ranking:
             messagebox.showinfo("Vacío", f"No hay datos en {mes_nombre} para publicar.")
             return
 
-        # 4. Construir el Embed
-        descripcion = f"**📊 REPORTE OFICIAL - {mes_nombre.upper()} {anio}**\n\n"
+        # 4. Construir el Cuerpo del Mensaje
+        # --- ENCABEZADO CON EL BOTE Y JUSTIFICACIÓN ---
+        descripcion = f"# 🏆 HALL OF FAME - {mes_nombre.upper()} {anio}\n"
+        descripcion += f"## 💰 BOTE ACUMULADO: `${total_bote:.2f} USD` 💰\n"
+        descripcion += f"\n\n* ✅ Pedidos Terminados: `{cant_term}` ($1.00 c/u)\n"
+        descripcion += f"* 🔥 Bonos High WR (>60%): `{cant_high_wr}` ($1.00 c/u)\n"
+        descripcion += "\n**DETALLE POR STAFF:**\n\n"
         
         for i, b in enumerate(ranking[:10], start=1):
-            nombre, terminados, wr, abandonos, puntaje = b[0], b[1], b[2], b[3], b[4]
-
-            pts_reales = puntaje + (abandonos * 10)
-            dificultad = pts_reales / terminados if terminados > 0 else 0
-            
-            if dificultad >= 30: liga = "💎 Diamante" 
-            elif dificultad >= 13: liga = "🟢 Esmeralda" 
-            elif dificultad > 0: liga = "🔵 Platino"  
-            else: liga = "⚪ Unranked"
+            nombre, terminados, high_wr_count, abandonos, puntaje = b[0], b[1], b[2], b[3], b[4]
 
             if i == 1: icon = "🥇"
             elif i == 2: icon = "🥈"
@@ -1210,18 +1240,19 @@ class PerezBoostApp(ctk.CTk):
             else: icon = f"#{i}"
 
             descripcion += f"{icon} **{nombre}** — 🏆 `{int(puntaje)} Pts`\n"
-            descripcion += f"   ✅ `{terminados}`  |  ❌ `{abandonos}`  |  Avg WR: `{wr:.1f}%`\n"
-            descripcion += f"   📊 Nivel: **{liga}**\n\n"
+            descripcion += f"   ✅ `{terminados}` Terminados  |  🔥 `{high_wr_count}` High WR  |  ❌ `{abandonos}` Drops\n\n"
+
+        descripcion += "\nEl bote lo gana el primer lugar al final del mes."
 
         try:
             noti = DiscordNotifier(url)
             noti.enviar_notificacion(
-                titulo=f"🏆 HALL OF FAME - {mes_nombre.upper()}",
+                titulo="",
                 descripcion=descripcion,
-                color=0xFFD700,
+                color=0xFFD700, 
                 campos=[] 
             )
-            messagebox.showinfo("Éxito", f"Ranking de {mes_nombre} enviado a Discord.")
+            messagebox.showinfo("Éxito", f"Ranking y Bote de {mes_nombre} publicados.")
         except Exception as e:
             messagebox.showerror("Error", f"Fallo al enviar: {e}")
             
@@ -1237,24 +1268,28 @@ class PerezBoostApp(ctk.CTk):
 
         header = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
         header.pack(pady=20, padx=30, fill="x")
+        
         ctk.CTkLabel(header, text="📊 DASHBOARD FINANCIERO", font=("Arial", 24, "bold")).pack(side="left")
 
-        utilidad, total_cli, total_boo = obtener_balance_general_db()
+        meses = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         
-        stats_container = ctk.CTkFrame(self.main_scroll, fg_color="#161616", corner_radius=15)
-        stats_container.pack(fill="x", padx=30, pady=10)
+        self.combo_filtro_finanzas = ctk.CTkOptionMenu(
+            header, 
+            values=meses, 
+            width=150,
+            command=self.actualizar_tarjetas_finanzas 
+        )
+        self.combo_filtro_finanzas.set("Todos")
+        self.combo_filtro_finanzas.pack(side="right")
+        ctk.CTkLabel(header, text="📅 Periodo:", font=("Arial", 12, "bold")).pack(side="right", padx=10)
 
-        def crear_card(parent, titulo, valor, color):
-            f = ctk.CTkFrame(parent, fg_color="transparent")
-            f.pack(side="left", expand=True, pady=25)
-            ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), text_color="gray").pack()
-            ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 24, "bold"), text_color=color).pack()
+        self.stats_container = ctk.CTkFrame(self.main_scroll, fg_color="#161616", corner_radius=15)
+        self.stats_container.pack(fill="x", padx=30, pady=10)
 
-        crear_card(stats_container, "INGRESOS TOTALES", total_cli, "#2ecc71") 
-        crear_card(stats_container, "COSTO STAFF", total_boo, "#e74c3c")      
-        crear_card(stats_container, "UTILIDAD NETA", utilidad, "#3498db")     
+        self.actualizar_tarjetas_finanzas("Todos")
 
-        ctk.CTkLabel(self.main_scroll, text="👤 PAGOS PENDIENTES POR STAFF", 
+        ctk.CTkLabel(self.main_scroll, text="👤 PAGOS PENDIENTES POR STAFF (Deuda Actual)", 
                      font=("Arial", 16, "bold")).pack(anchor="w", padx=35, pady=(30, 10))
 
         self.container_pagos = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
@@ -1262,8 +1297,42 @@ class PerezBoostApp(ctk.CTk):
         
         self.actualizar_lista_liquidaciones()
 
-    def actualizar_lista_liquidaciones(self):
+    def actualizar_tarjetas_finanzas(self, seleccion):
+        """Recalcula los números según el mes seleccionado en el combo."""
 
+        for widget in self.stats_container.winfo_children():
+            widget.destroy()
+
+        filtro_db = None
+        if seleccion != "Todos":
+            meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            try:
+                mes_idx = meses_nombres.index(seleccion) + 1
+                anio_actual = datetime.now().year
+                filtro_db = f"{anio_actual}-{str(mes_idx).zfill(2)}"
+            except:
+                filtro_db = None
+
+        utilidad_bruta, total_cli, total_boo, count_pedidos = obtener_balance_general_db(filtro_db)
+
+        bote_periodo = float(count_pedidos) * 1.0 
+        utilidad_neta_real = utilidad_bruta - bote_periodo
+
+        def crear_card(parent, titulo, valor, color):
+            f = ctk.CTkFrame(parent, fg_color="transparent")
+            f.pack(side="left", expand=True, pady=25)
+            ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), text_color="gray").pack()
+            ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 24, "bold"), text_color=color).pack()
+
+        crear_card(self.stats_container, "INGRESOS", total_cli, "#2ecc71") 
+        crear_card(self.stats_container, "COSTO STAFF", total_boo, "#e74c3c")      
+        crear_card(self.stats_container, "UTILIDAD NETA", utilidad_neta_real, "#3498db")
+
+        lbl_bote = "BOTE MES" if seleccion != "Todos" else "BOTE TOTAL"
+        crear_card(self.stats_container, lbl_bote, bote_periodo, "#f1c40f")
+
+    def actualizar_lista_liquidaciones(self):
         for widget in self.container_pagos.winfo_children():
             widget.destroy()
             
@@ -1284,17 +1353,17 @@ class PerezBoostApp(ctk.CTk):
             
             ctk.CTkLabel(info, text=f"{booster}  •  {cant} pedidos", font=("Arial", 14, "bold"), anchor="w").pack(anchor="w")
             
-            if len(detalle) > 60: 
+            if detalle and len(detalle) > 60: 
                 detalle = detalle[:60] + "..." 
-                
+            
             ctk.CTkLabel(info, text=f"📄 {detalle}", font=("Arial", 11), text_color="#aaaaaa", anchor="w").pack(anchor="w")
+
             ctk.CTkButton(card, text=f"Pagar ${total:,.2f}", width=130, height=35,
                           fg_color="#2ecc71", hover_color="#27ae60", font=("Arial", 12, "bold"),
                           command=lambda b=booster, t=total: self.ejecutar_pago(b, t)).pack(side="right", padx=20)
 
     def ejecutar_pago(self, booster, total):
-
-        if messagebox.askyesno("Confirmar Liquidación", f"¿Confirmas el pago de ${total:,.2f} a {booster}?\n\nEsta acción marcará {booster}."):
+        if messagebox.askyesno("Confirmar Liquidación", f"¿Confirmas el pago de ${total:,.2f} a {booster}?\n\nEsta acción marcará {booster} como PAGADO."):
             cant = liquidar_pagos_booster_db(booster)
             registrar_log("PAGO_STAFF", f"Liquidación de ${total:,.2f} a {booster} ({cant} pedidos)")
             messagebox.showinfo("Pago Exitoso", f"Se han liquidado {cant} pedidos de {booster} correctamente.")
