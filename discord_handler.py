@@ -23,13 +23,6 @@ class DiscordNotifier:
             print(f"Error enviando a Discord: {e}")
 
     def enviar_notificacion(self, titulo, descripcion, color=COLOR_INFO, campos=None):
-        """
-        Envía un Embed profesional a Discord v9.0.
-        :param titulo: Título del mensaje.
-        :param descripcion: Texto descriptivo debajo del título.
-        :param color: Color lateral del embed.
-        :param campos: Lista de dicts [{'name': '...', 'value': '...', 'inline': True}]
-        """
         if not self.webhook_url or self.webhook_url.strip() == "": 
             return
 
@@ -38,7 +31,7 @@ class DiscordNotifier:
             "description": str(descripcion),
             "color": color,
             "footer": {
-                "text": f"PerezBoost Manager V9.0 • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                "text": f"PerezBoost Manager V10.0 • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                 "icon_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png"
             },
             "timestamp": datetime.utcnow().isoformat()
@@ -52,7 +45,7 @@ class DiscordNotifier:
             embed["fields"] = campos
 
         payload = {
-            "username": "PerezBoost Bot V9.0",
+            "username": "PerezBoost Bot V10.0",
             "avatar_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png",
             "embeds": [embed]
         }

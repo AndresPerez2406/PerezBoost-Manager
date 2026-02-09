@@ -1,5 +1,10 @@
 import os
 import sys
+import psycopg2
+from psycopg2 import extras
+import threading
+import sqlite3
+import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
@@ -10,6 +15,7 @@ matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from discord_handler import DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
+import core.cloud_sync
 from core.database import (
     actualizar_pedido_db, actualizar_booster_db, actualizar_inventario_db,
     agregar_booster, eliminar_booster, obtener_boosters_db,
@@ -24,7 +30,6 @@ from core.database import (
     obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
     obtener_resumen_financiero_real
 
-    
 )
 from core.logic import (
     calcular_tiempo_transcurrido, calcular_pago_real, calcular_fecha_limite_sugerida
@@ -35,6 +40,83 @@ from modules.inventario import (
 from modules.pedidos import (
     obtener_elos_en_stock, obtener_cuentas_filtradas_datos
 )
+
+AWS_HOST = "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com"
+AWS_DB = "postgres"
+AWS_USER = "postgres"
+AWS_PASS = "Andres2406."
+AWS_PORT = "5432"
+
+def logica_subir_a_nube(callback_exito, callback_error):
+    try:
+        conn_local = sqlite3.connect("perezboost.db")
+        cur_local = conn_local.cursor()
+        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
+        cur_cloud = conn_cloud.cursor()
+
+        tablas = ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]
+        for t in tablas: cur_cloud.execute(f"DROP TABLE IF EXISTS {t} CASCADE;")
+        
+        cur_cloud.execute("CREATE TABLE boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
+        cur_cloud.execute("CREATE TABLE inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
+        cur_cloud.execute("CREATE TABLE config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
+        cur_cloud.execute("CREATE TABLE sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
+        cur_cloud.execute("CREATE TABLE logs_auditoria (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
+        cur_cloud.execute("""
+            CREATE TABLE pedidos (
+                id SERIAL PRIMARY KEY, booster_id INTEGER, booster_nombre VARCHAR(255),
+                user_pass VARCHAR(255), elo_inicial VARCHAR(50), fecha_inicio VARCHAR(50),
+                fecha_limite VARCHAR(50), estado VARCHAR(50), elo_final VARCHAR(50),
+                wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50), 
+                pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION, 
+                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION, 
+                ajuste_motivo TEXT, pago_realizado INTEGER
+            );
+        """)
+        conn_cloud.commit()
+
+        def migrar(tabla):
+            cur_local.execute(f"SELECT * FROM {tabla}")
+            filas = cur_local.fetchall()
+            if not filas: return
+            def limpiar(v): return None if v in [None, "NULL", "NONE", ""] else v
+            filas_L = [tuple([limpiar(x) for x in f]) for f in filas]
+            placeholders = ",".join(["%s"] * len(filas_L[0]))
+            extras.execute_batch(cur_cloud, f"INSERT INTO {tabla} VALUES ({placeholders})", filas_L)
+
+        migrar("boosters"); migrar("inventario"); migrar("config_precios")
+        migrar("sistema_config"); migrar("logs_auditoria"); migrar("pedidos")
+
+        for t in ["pedidos", "boosters", "inventario", "logs_auditoria"]:
+            try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
+            except: pass
+
+        conn_cloud.commit(); conn_local.close(); conn_cloud.close()
+        callback_exito()
+    except Exception as e: callback_error(str(e))
+
+def logica_bajar_de_nube(callback_exito, callback_error):
+    try:
+        shutil.copy2("perezboost.db", f"backup_pre_sync_{datetime.now().strftime('%H%M%S')}.db")
+        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
+        cur_cloud = conn_cloud.cursor()
+        conn_local = sqlite3.connect("perezboost.db"); cur_local = conn_local.cursor()
+
+        cur_local.execute("PRAGMA foreign_keys = OFF;")
+        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]:
+            cur_local.execute(f"DELETE FROM {t}")
+        
+        def bajar(tabla):
+            cur_cloud.execute(f"SELECT * FROM {tabla}")
+            filas = cur_cloud.fetchall()
+            if filas: cur_local.executemany(f"INSERT INTO {tabla} VALUES ({','.join(['?']*len(filas[0]))})", filas)
+
+        bajar("boosters"); bajar("inventario"); bajar("config_precios")
+        bajar("sistema_config"); bajar("logs_auditoria"); bajar("pedidos")
+
+        conn_local.commit(); conn_local.close(); conn_cloud.close()
+        callback_exito()
+    except Exception as e: callback_error(str(e))
 
 # =============================================================================
 # CLASE PRINCIPAL: PEREZBOOST APP
@@ -58,7 +140,7 @@ class PerezBoostApp(ctk.CTk):
         self.map_c_id = {}
         self.map_c_note = {}
 
-        self.title("PerezBoost Manager V9.0 - Platinum Edition")
+        self.title("PerezBoost Manager V10.0 - Cloud Edition")
         self.geometry("1240x750")
         ctk.set_appearance_mode("dark")
         self.centrar_ventana(self, 1240, 750)
@@ -184,7 +266,12 @@ class PerezBoostApp(ctk.CTk):
         try:
             conn = conectar(); cursor = conn.cursor()
             hoy_str = datetime.now().strftime("%Y-%m-%d")
-            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado='Terminado' AND fecha_fin_real LIKE ?", (f"{hoy_str}%",))
+
+            if 'psycopg2' in str(conn):
+                cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado='Terminado' AND fecha_fin_real LIKE %s", (f"{hoy_str}%",))
+            else:
+                cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado='Terminado' AND fecha_fin_real LIKE ?", (f"{hoy_str}%",))
+                
             cantidad_hoy = cursor.fetchone()[0]
             conn.close()
         except: cantidad_hoy = 0
@@ -193,6 +280,9 @@ class PerezBoostApp(ctk.CTk):
 
         ganancia_mes, terminados_mes = obtener_kpis_mensuales()
         criticos, proximos = self.calcular_resumen_emergencias()
+
+        stats_completa = obtener_resumen_mensual_db()
+        eficiencia_real = stats_completa[4]
 
         main_wrapper = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         main_wrapper.pack(expand=True, fill="both")
@@ -225,7 +315,8 @@ class PerezBoostApp(ctk.CTk):
         self.crear_card(cards_frame, "💵 PROFIT HOY", f"${profit_neto_hoy:,.2f}", "#27ae60", 1, 0)
         
         self.crear_card(cards_frame, "💰 PROYECCIÓN", f"${proyeccion:,.2f}", "#00b894", 1, 1) 
-        self.crear_card(cards_frame, "⚡ EFICIENCIA", "1.2 d", "#e67e22", 1, 2)
+
+        self.crear_card(cards_frame, "⚡ EFICIENCIA", f"{eficiencia_real:.1f} d", "#e67e22", 1, 2)
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.pack(pady=40)
@@ -242,7 +333,6 @@ class PerezBoostApp(ctk.CTk):
         cursor = conn.cursor()
         
         try:
-
             cursor.execute("""
                 SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr,
                        fecha_inicio, fecha_fin_real,
@@ -252,10 +342,16 @@ class PerezBoostApp(ctk.CTk):
             """, (hoy_str,))
             
             pedidos_hoy = cursor.fetchall()
-            sum_ganancia, sum_staff, sum_ventas, aporte_bote = 0.0, 0.0, 0.0, 0.0
+
+            sum_ganancia = 0.0  
+            sum_staff = 0.0     
+            sum_ventas = 0.0    
+            
+            total_bote_visual = 0.0 
+            total_descuento_real = 0.0 
 
             reporte = (
-                f"📊 REPORTE DE CIERRE DIARIO - V9.5\n"
+                f"📊 REPORTE DE CIERRE DIARIO\n"
                 f"📅 Fecha: {datetime.now().strftime('%d/%m/%Y')}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
@@ -276,8 +372,17 @@ class PerezBoostApp(ctk.CTk):
                 pago = clean_f(pago_raw)
                 g_bruta = clean_f(ganancia_raw)
 
-                g_neta = g_bruta - 1.0
-                bote_pedido = 1.0
+                try: wr_val = float(wr) 
+                except: wr_val = 0.0
+
+                if wr_val >= 60:
+                    bote_pedido = 2.0
+                else:
+                    bote_pedido = 1.0 
+
+                descuento_perez = 1.0 
+
+                g_neta = g_bruta - descuento_perez
 
                 if cobro == 0 and (pago > 0 or g_bruta > 0):
                     cobro = pago + g_bruta
@@ -285,7 +390,9 @@ class PerezBoostApp(ctk.CTk):
                 sum_ventas += cobro
                 sum_staff += pago
                 sum_ganancia += g_neta
-                aporte_bote += bote_pedido
+                
+                total_bote_visual += bote_pedido
+                total_descuento_real += descuento_perez
 
                 try:
                     s_ini = str(f_ini).split(' ')[0]
@@ -299,21 +406,22 @@ class PerezBoostApp(ctk.CTk):
                 reporte += f"📦 ORDEN #{p_id} | {str(staff).upper()}\n"
                 reporte += f"   ├─ 🎮 Cuenta: {cuenta} ({e_ini} ➔ {e_fin})\n"
                 reporte += f"   ├─ ⏳ Tiempo: {duracion_txt} | WR: {wr}%\n"
-                reporte += f"   └─ 💰 Neto: +${g_neta:.2f} (Bote: $1.00)\n" 
+                reporte += f"   └─ 💰 Neto: +${g_neta:.2f} (Bote: ${bote_pedido:.2f})\n" 
                 reporte += f"────────────────────────────────────\n"
 
             reporte += (
                 f"\n💵 BALANCE DEL DÍA:\n"
                 f"   VENTAS TOTALES:   ${sum_ventas:,.2f}\n"
                 f"   PAGO STAFF:      -${sum_staff:,.2f}\n"
-                f"   APORTE RANKING:     -${aporte_bote:,.2f}\n"
+                f"   APORTE RANKING:     -${total_descuento_real:,.2f}\n"
+                f"   (Bote Acumulado Hoy: ${total_bote_visual:,.2f})\n"
                 f"   --------------------------------\n"
                 f"   PROFIT NETO:     +${sum_ganancia:,.2f} (Bolsillo)\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             )
 
             v = ctk.CTkToplevel(self)
-            v.title("Reporte Ejecutivo Full Audit")
+            v.title("Reporte Ejecutivo Diario")
             self.centrar_ventana(v, 500, 600)
             v.attributes("-topmost", True)
             
@@ -372,7 +480,7 @@ class PerezBoostApp(ctk.CTk):
         return criticos, proximos
 
     # =========================================================================
-    # 3. SECCIÓN: TARIFAS
+    # 3. SECCIÓN: TARIFAS Y CONFIGURACIÓN NUBE
     # =========================================================================
 
     def mostrar_precios(self):
@@ -381,64 +489,93 @@ class PerezBoostApp(ctk.CTk):
 
         header = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         header.pack(pady=15, padx=30, fill="x")
-        ctk.CTkLabel(header, text="⚙️ CONFIGURACIÓN DE TARIFAS Y PUNTOS", font=("Arial", 20, "bold")).pack(side="left")
-
+        ctk.CTkLabel(header, text="⚙️ CONFIGURACIÓN DE SISTEMA", font=("Arial", 20, "bold")).pack(side="left")
 
         cols = ("div", "p_cli", "m_per", "p_boo", "pts")
-        self.tabla_precios = ttk.Treeview(self.content_frame, columns=cols, show="headings", height=8)
+        self.tabla_precios = ttk.Treeview(self.content_frame, columns=cols, show="headings", height=6)
 
         headers = ["DIVISIÓN", "PRECIO CLIENTE", "MARGEN PEREZ", "PAGO BOOSTER", "PUNTOS RANK"]
         for col, h in zip(cols, headers):
             self.tabla_precios.heading(col, text=h)
-
             ancho = 100 if col == "pts" else 150
             self.tabla_precios.column(col, anchor="center", width=ancho)
 
-        self.tabla_precios.pack(padx=30, pady=10, fill="both", expand=True)
+        self.tabla_precios.pack(padx=30, pady=10, fill="x") 
         self.actualizar_tabla_precios()
+
         footer = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        footer.pack(pady=(5, 20), padx=30, fill="x")
+        footer.pack(pady=(5, 10), padx=30, fill="x")
         
-        ctk.CTkButton(footer, text="+ Nueva Tarifa", fg_color="#2ecc71", width=120,
+        ctk.CTkButton(footer, text="+ Nueva Tarifa", fg_color="#2ecc71", width=110,
                       command=self.abrir_ventana_nuevo_precio).pack(side="left", padx=5)
         ctk.CTkButton(footer, text="📝 Editar", fg_color="#f39c12", width=100,
                       command=self.abrir_ventana_editar_precio).pack(side="left", padx=5)
         
-        ctk.CTkFrame(footer, width=20, height=1, fg_color="transparent").pack(side="left")
+        ctk.CTkFrame(footer, width=20, height=1, fg_color="transparent").pack(side="left") 
         
-        ctk.CTkButton(footer, text="💾 Backup DB", fg_color="#1f538d", width=110,
+        ctk.CTkButton(footer, text="💾 Backup Local", fg_color="#1f538d", width=110,
                       command=self.ejecutar_backup_manual).pack(side="left", padx=5)
         ctk.CTkButton(footer, text="🕵️ Auditoría", fg_color="#34495e", hover_color="#2c3e50", width=110,
                       command=self.abrir_visor_logs).pack(side="left", padx=5)
         ctk.CTkButton(footer, text="🗑️ Eliminar", fg_color="#e74c3c", width=100,
                       command=self.eliminar_precio_seleccionado).pack(side="right")
-        
+
+        ctk.CTkFrame(self.content_frame, height=2, fg_color="#333333").pack(fill="x", padx=30, pady=10)
+
         frame_discord = ctk.CTkFrame(self.content_frame, fg_color="#1a1a1a", corner_radius=10)
-        frame_discord.pack(fill="x", padx=30, pady=10)
+        frame_discord.pack(fill="x", padx=30, pady=5)
         
-        ctk.CTkLabel(frame_discord, text="🤖 CONECTIVIDAD DISCORD", font=("Arial", 14, "bold")).pack(anchor="w", padx=15, pady=(10,5))
+        ctk.CTkLabel(frame_discord, text="🤖 CONECTIVIDAD DISCORD", font=("Arial", 14, "bold"), text_color="#5865F2").pack(anchor="w", padx=15, pady=(10,5))
 
         row1 = ctk.CTkFrame(frame_discord, fg_color="transparent")
-        row1.pack(fill="x", padx=10, pady=5)
+        row1.pack(fill="x", padx=10, pady=2)
         ctk.CTkLabel(row1, text="🔔 Canal Pedidos/Log:", width=150, anchor="w").pack(side="left")
-        self.entry_webhook = ctk.CTkEntry(row1, width=400, placeholder_text="Webhook para Notificaciones...")
+        self.entry_webhook = ctk.CTkEntry(row1, width=400, placeholder_text="Webhook General...")
         self.entry_webhook.pack(side="left", fill="x", expand=True, padx=5)
 
         row2 = ctk.CTkFrame(frame_discord, fg_color="transparent")
-        row2.pack(fill="x", padx=10, pady=5)
+        row2.pack(fill="x", padx=10, pady=2)
         ctk.CTkLabel(row2, text="🏆 Canal Ranking:", width=150, anchor="w").pack(side="left")
-        self.entry_webhook_rank = ctk.CTkEntry(row2, width=400, placeholder_text="Webhook para el Ranking Semanal...")
+        self.entry_webhook_rank = ctk.CTkEntry(row2, width=400, placeholder_text="Webhook Ranking...")
         self.entry_webhook_rank.pack(side="left", fill="x", expand=True, padx=5)
 
         url_pedidos = obtener_config_sistema("discord_webhook")
         url_ranking = obtener_config_sistema("discord_webhook_ranking")
-        
         if url_pedidos: self.entry_webhook.insert(0, url_pedidos)
         if url_ranking: self.entry_webhook_rank.insert(0, url_ranking)
         
-        ctk.CTkButton(frame_discord, text="💾 Guardar Conexiones", width=200, fg_color="#5865F2", 
-                      command=self.guardar_webhooks_discord).pack(pady=15)
-        
+        ctk.CTkButton(frame_discord, text="Guardar Webhooks", width=150, height=30, fg_color="#404eed", 
+                      command=self.guardar_webhooks_discord).pack(pady=10)
+
+        frame_cloud = ctk.CTkFrame(self.content_frame, fg_color="#2d2042", corner_radius=10) 
+        frame_cloud.pack(fill="x", padx=30, pady=10)
+
+        ctk.CTkLabel(frame_cloud, text="☁️ SINCRONIZACIÓN NUBE (AWS)", font=("Arial", 14, "bold"), text_color="#a29bfe").pack(anchor="w", padx=15, pady=(10,5))
+
+        btns_cloud = ctk.CTkFrame(frame_cloud, fg_color="transparent")
+        btns_cloud.pack(pady=10)
+
+        btn_subir = ctk.CTkButton(
+            btns_cloud, 
+            text="⬆️ SUBIR a Nube\n(Backup)", 
+            fg_color="#8e44ad", hover_color="#9b59b6", 
+            width=160, height=50,
+            font=("Arial", 12, "bold"),
+            command=self.accion_subir_nube 
+        )
+        btn_subir.pack(side="left", padx=20)
+
+        btn_bajar = ctk.CTkButton(
+            btns_cloud, 
+            text="⬇️ BAJAR de Nube\n(Restaurar)", 
+            fg_color="#e67e22", hover_color="#d35400", 
+            width=160, height=50,
+            font=("Arial", 12, "bold"),
+            command=self.accion_bajar_nube 
+        )
+        btn_bajar.pack(side="left", padx=20)
+
+        ctk.CTkLabel(frame_cloud, text="Nota: 'Subir' guarda tu PC en AWS. 'Bajar' trae AWS a tu PC (sobrescribe local).", font=("Arial", 10, "italic"), text_color="gray").pack(pady=(0,10))
     def guardar_webhooks_discord(self):
         url_pedidos = self.entry_webhook.get().strip()
         url_ranking = self.entry_webhook_rank.get().strip()
@@ -452,7 +589,6 @@ class PerezBoostApp(ctk.CTk):
             messagebox.showerror("Error", "Hubo un problema guardando la configuración.")
 
     def actualizar_tabla_precios(self):
-
         for item in self.tabla_precios.get_children():
             self.tabla_precios.delete(item)
 
@@ -462,13 +598,32 @@ class PerezBoostApp(ctk.CTk):
             div, p_cli, m_per, pts = t
             p_boo = p_cli - m_per
             self.tabla_precios.insert("", "end", values=(
-                div, 
-                f"${p_cli:,.2f}", 
-                f"${m_per:,.2f}", 
-                f"${p_boo:,.2f}", 
+                div,
+                f"${p_cli:,.2f}",
+                f"${m_per:,.2f}",
+                f"${p_boo:,.2f}",
                 pts
             ))
+            
+    def accion_subir_nube(self):
+        self.win = ctk.CTkToplevel(self); self.centrar_ventana(self.win, 300, 150); self.win.attributes("-topmost", True)
+        ctk.CTkLabel(self.win, text="🚀 Subiendo a AWS...", font=("Arial", 14)).pack(pady=20)
+        bar = ctk.CTkProgressBar(self.win, mode="indeterminate"); bar.pack(pady=10); bar.start()
+        
+        def fin(): self.win.destroy(); messagebox.showinfo("Nube", "✅ Datos subidos correctamente.")
+        def err(e): self.win.destroy(); messagebox.showerror("Error", f"Fallo: {e}")
+        threading.Thread(target=logica_subir_a_nube, args=(fin, err)).start()
 
+    def accion_bajar_nube(self):
+        if not messagebox.askyesno("Confirmar", "⚠️ ¿Borrar datos locales y traer los de la Nube?"): return
+        self.win = ctk.CTkToplevel(self); self.centrar_ventana(self.win, 300, 150); self.win.attributes("-topmost", True)
+        ctk.CTkLabel(self.win, text="⬇️ Descargando de AWS...", font=("Arial", 14)).pack(pady=20)
+        bar = ctk.CTkProgressBar(self.win, mode="indeterminate"); bar.pack(pady=10); bar.start()
+
+        def fin(): self.win.destroy(); messagebox.showinfo("Nube", "✅ Datos descargados."); self.mostrar_dashboard()
+        def err(e): self.win.destroy(); messagebox.showerror("Error", f"Fallo: {e}")
+        threading.Thread(target=logica_bajar_de_nube, args=(fin, err)).start()
+        
     # =========================================================================
     # 4. SECCIÓN: BOOSTERS (STAFF)
     # =========================================================================
@@ -842,6 +997,42 @@ class PerezBoostApp(ctk.CTk):
     def actualizar_analitica(self):
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
+        
+        datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), self.combo_booster_rep.get())
+        if not datos: return
+
+        t_staff, t_neto, t_bote, t_ventas = 0, 0, 0, 0
+
+        for r in datos:
+            pago_staff = float(str(r[12]).replace('$','')) if r[12] else 0
+            ganancia_bruta = float(str(r[13]).replace('$','')) if r[13] else 0
+            try: wr = float(r[9]) 
+            except: wr = 0
+
+            bote_visual = 2.0 if wr >= 60 else 1.0  
+            ganancia_neta = ganancia_bruta - 1.0    
+            total_cliente = pago_staff + ganancia_neta + bote_visual 
+
+
+            t_staff += pago_staff
+            t_neto += ganancia_neta
+            t_bote += bote_visual
+            t_ventas += total_cliente
+
+            self.tabla_rep.insert("", "end", values=(
+                r[2], r[8], "---", 
+                f"${pago_staff:.2f}", f"${ganancia_neta:.2f}", 
+                f"${bote_visual:.2f}", f"${total_cliente:.2f}"
+            ))
+
+        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${t_staff:.2f}", "#3498db", 0)
+        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${t_neto:.2f}", "#2ecc71", 1)
+        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${t_bote:.2f}", "#f1c40f", 2)
+        self.crear_card_mini(self.kpi_frame, "TOTAL VENTAS", f"${t_ventas:.2f}", "#9b59b6", 3)
+        
+    def actualizar_analitica(self):
+        for widget in self.kpi_frame.winfo_children(): widget.destroy()
+        for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
         for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
         booster_seleccionado = self.combo_booster_rep.get()
@@ -852,6 +1043,8 @@ class PerezBoostApp(ctk.CTk):
         total_bote = 0.0
         conteo_terminados = 0
         dias_totales = 0
+        
+        suma_total_clientes = 0.0 
 
         def limpiar_dinero(valor):
             try:
@@ -861,19 +1054,28 @@ class PerezBoostApp(ctk.CTk):
 
         if datos:
             for r in datos:
-
                 conteo_terminados += 1
 
-                g_bruta = limpiar_dinero(r[13]) 
-                p_row = limpiar_dinero(r[12])   
+                g_bruta_db = limpiar_dinero(r[13])
+                p_row = limpiar_dinero(r[12])      
 
-                bote_row = 1.0 
-                g_neta = g_bruta - bote_row
-                t_cli = g_bruta + p_row 
-                
+                try: val_wr = float(r[9]) if r[9] is not None else 0.0
+                except: val_wr = 0.0
+
+                if val_wr >= 60:
+                    bote_visual = 2.0
+                else:
+                    bote_visual = 1.0 
+
+                descuento_base = 1.0 
+                g_neta = g_bruta_db - descuento_base
+
+                t_cli = p_row + g_neta + bote_visual
+
                 ganancia_neta_perez += g_neta
                 pago_total_staff += p_row
-                total_bote += bote_row
+                total_bote += bote_visual
+                suma_total_clientes += t_cli
 
                 try:
                     if r[5] and r[10]:
@@ -892,8 +1094,8 @@ class PerezBoostApp(ctk.CTk):
                     r[2], r[8], d_txt, 
                     f"${p_row:.2f}", 
                     f"${g_neta:.2f}", 
-                    f"${bote_row:.2f}",
-                    f"${t_cli:.2f}"
+                    f"${bote_visual:.2f}", 
+                    f"${t_cli:.2f}"        
                 ))
 
         promedio = dias_totales / conteo_terminados if conteo_terminados > 0 else 0
@@ -901,7 +1103,7 @@ class PerezBoostApp(ctk.CTk):
         self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${pago_total_staff:.2f}", "#3498db", 0)
         self.crear_card_mini(self.kpi_frame, "MI NETO", f"${ganancia_neta_perez:.2f}", "#2ecc71", 1)
         self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${total_bote:.2f}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "PEDIDOS", f"{conteo_terminados}", "#9b59b6", 3)
+        self.crear_card_mini(self.kpi_frame, "TOTAL VENTAS", f"${suma_total_clientes:.2f}", "#9b59b6", 3)
         self.crear_card_mini(self.kpi_frame, "EFICIENCIA", f"{promedio:.1f} d", "#e67e22", 4)
 
         if conteo_terminados > 0:
@@ -957,13 +1159,12 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkLabel(card, text=valor, font=("Arial", 16, "bold"), text_color="white").pack(pady=(2,8))
 
     def exportar_excel_avanzado(self):
-        """Exporta el reporte ajustado a V9.5 (Ganancia Neta)."""
         import pandas as pd
         from datetime import datetime
         
         mes = self.combo_mes.get()
         booster = self.combo_booster_rep.get()
-        nombre_sugerido = f"Reporte_V9.5_{mes}_{booster.replace(' ', '_')}.xlsx"
+        nombre_sugerido = f"Reporte_V10_{mes}_{booster.replace(' ', '_')}.xlsx"
         
         datos = obtener_datos_reporte_avanzado(mes, booster)
         if not datos: 
@@ -1023,7 +1224,7 @@ class PerezBoostApp(ctk.CTk):
             "APORTE BOTE": totales["APORTE BOTE"],
             "TOTAL CLIENTE": totales["TOTAL CLIENTE"]
         }])
-        df = pd.concat([df, row_total], ignore_index=True)
+        df = pd.concat([df, row_total], ignore_index=True) 
 
         try:
             with pd.ExcelWriter(ruta, engine='openpyxl') as writer:
@@ -1037,7 +1238,7 @@ class PerezBoostApp(ctk.CTk):
                 ws.column_dimensions['A'].width = 20
                 ws.column_dimensions['H'].width = 18
             
-            messagebox.showinfo("Éxito", "Reporte Excel V9.5 generado.")
+            messagebox.showinfo("Éxito", "Reporte Excel V10 generado.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
     
@@ -1049,50 +1250,41 @@ class PerezBoostApp(ctk.CTk):
         self.limpiar_pantalla()
         self.configurar_estilo_tabla()
 
-        # --- CONFIGURACIÓN DE FECHAS ---
         meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         fecha_hoy = datetime.now()
         mes_actual_idx = fecha_hoy.month - 1
         anio_actual = fecha_hoy.year
 
-        # --- FRAME PRINCIPAL ---
         main_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         main_frame.pack(expand=True, fill="both", padx=30, pady=20)
 
-        # Header
         header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 15))
         ctk.CTkLabel(header_frame, text="🏆 HALL OF FAME", font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(side="left")
 
-        # Filtro Mes
         self.combo_mes_rank = ctk.CTkOptionMenu(header_frame, values=meses_nombres, width=140, fg_color="#34495e")
         self.combo_mes_rank.set(meses_nombres[mes_actual_idx]) 
         self.combo_mes_rank.pack(side="right")
         ctk.CTkLabel(header_frame, text="📅 Filtrar Mes:", font=("Arial", 14)).pack(side="right", padx=10)
 
-        # --- SECCIÓN DE PREMIOS (BOTE) ---
         prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
         prize_frame.pack(fill="x", pady=(0, 20), padx=5)
         self.lbl_bote = ctk.CTkLabel(prize_frame, text="...", font=("Arial", 18, "bold"), text_color="#ecf0f1")
         self.lbl_bote.pack(pady=15)
 
-        # --- SECCIÓN DE ESTADÍSTICAS ---
         stats_frame = ctk.CTkFrame(main_frame, fg_color="#1a1a1a", border_width=1, border_color="#5865F2")
         stats_frame.pack(fill="x", pady=(0, 20))
         stats_frame.columnconfigure((0,1,2), weight=1)
 
-        # 1. PEDIDOS TOTALES
         ctk.CTkLabel(stats_frame, text="📦 Pedidos Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
         self.lbl_totales = ctk.CTkLabel(stats_frame, text="0", font=("Arial", 16, "bold"), text_color="white")
         self.lbl_totales.grid(row=1, column=0, pady=(0,10))
 
-        # 2. EFICIENCIA (Días Promedio)
         ctk.CTkLabel(stats_frame, text="⚡ Eficiencia (Días/Pedido)", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
         self.lbl_eficiencia = ctk.CTkLabel(stats_frame, text="0 Días", font=("Arial", 16, "bold"), text_color="#2ecc71")
         self.lbl_eficiencia.grid(row=1, column=1, pady=(0,10))
 
-        # 3. WR GLOBAL
         ctk.CTkLabel(stats_frame, text="📊 WR Global", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
         self.lbl_wr = ctk.CTkLabel(stats_frame, text="0%", font=("Arial", 16, "bold"), text_color="#f1c40f")
         self.lbl_wr.grid(row=1, column=2, pady=(0,10))
@@ -1121,10 +1313,9 @@ class PerezBoostApp(ctk.CTk):
             for item in self.tabla_rank.get_children(): self.tabla_rank.delete(item)
 
             try:
-                # 1. RECIBIMOS 5 VALORES DE LA DB
+
                 cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
-                
-                # 2. Cálculos Stats
+
                 total_pedidos = cant_term
 
                 bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) 
@@ -1134,7 +1325,6 @@ class PerezBoostApp(ctk.CTk):
                 cant_term, total_pedidos, avg_dias, wr_prom, cant_high_wr = 0, 0, 0, 0, 0
                 bote_total = 0.0
 
-            # 3. ACTUALIZAR LABELS
             self.lbl_totales.configure(text=f"{total_pedidos}") 
 
             if avg_dias > 0 and avg_dias < 1:
@@ -1147,7 +1337,6 @@ class PerezBoostApp(ctk.CTk):
             
             self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1 Pedido + $1 Bono WR)")
 
-            # 4. LLENAR TABLA
             ranking_data = obtener_ranking_staff_db(filtro) 
             
             if not ranking_data:
@@ -1198,7 +1387,6 @@ class PerezBoostApp(ctk.CTk):
             messagebox.showerror("Error", "No hay Webhook configurado.")
             return
 
-        # 1. Obtener el mes y año
         mes_nombre = self.combo_mes_rank.get()
         meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -1209,22 +1397,18 @@ class PerezBoostApp(ctk.CTk):
         except:
             filtro = datetime.now().strftime("%Y-%m")
 
-        # 2. Obtener Datos Globales para el Bote
         try:
             cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
-            # Justificación del Bote: $1 por cada terminado + $1 por cada High WR
+
             total_bote = (cant_term * 1.0) + (cant_high_wr * 1.0)
         except:
             cant_term, cant_high_wr, total_bote = 0, 0, 0.0
 
-        # 3. Obtener Ranking de Staff
         ranking = obtener_ranking_staff_db(filtro)
         if not ranking:
             messagebox.showinfo("Vacío", f"No hay datos en {mes_nombre} para publicar.")
             return
 
-        # 4. Construir el Cuerpo del Mensaje
-        # --- ENCABEZADO CON EL BOTE Y JUSTIFICACIÓN ---
         descripcion = f"# 🏆 HALL OF FAME - {mes_nombre.upper()} {anio}\n"
         descripcion += f"## 💰 BOTE ACUMULADO: `${total_bote:.2f} USD` 💰\n"
         descripcion += f"\n\n* ✅ Pedidos Terminados: `{cant_term}` ($1.00 c/u)\n"
@@ -1492,19 +1676,39 @@ class PerezBoostApp(ctk.CTk):
                 fecha_hoy_iso = datetime.now().strftime("%Y-%m-%d")
 
                 conn = conectar(); cursor = conn.cursor()
+                
                 # 1. Obtener precios
                 cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
                 tarifa = cursor.fetchone()
                 
-                # 2. Obtener racha del mes (total_mes)
-                mes_actual = datetime.now().strftime("%Y-%m")
+                # 2. Obtener la FECHA DE INICIO real de este pedido para la racha y numeración
+                cursor.execute("SELECT fecha_inicio FROM pedidos WHERE id = ?", (id_r,))
+                res_fecha = cursor.fetchone()
+                fecha_inicio_str = res_fecha[0] if res_fecha else fecha_hoy_iso
+
+                # --- LÓGICA DE MES DE INICIO ---
+                try:
+                    # Normalizamos la fecha de inicio para extraer el mes (YYYY-MM)
+                    if "/" in str(fecha_inicio_str):
+                        f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%d/%m/%Y")
+                    else:
+                        f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%Y-%m-%d")
+                    
+                    mes_inicio_iso = f_obj.strftime("%Y-%m")
+                    meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
+                                7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
+                    nombre_mes_es = meses_es[f_obj.month]
+                except:
+                    mes_inicio_iso = datetime.now().strftime("%Y-%m")
+                    nombre_mes_es = "ACTUAL"
+
+                # 3. Racha del Booster (Basada en pedidos que INICIARON en el mismo mes que este)
                 cursor.execute("""
                     SELECT COUNT(*) FROM pedidos 
                     WHERE booster_nombre = ? AND estado = 'Terminado' 
-                    AND fecha_fin_real LIKE ?
-                """, (nom_booster, f"{mes_actual}%"))
-                total_mes = (cursor.fetchone()[0] or 0) + 1 # Sumamos el actual
-                conn.close()
+                    AND fecha_inicio LIKE ?
+                """, (nom_booster, f"{mes_inicio_iso}%"))
+                total_mes_booster = (cursor.fetchone()[0] or 0) + 1 
 
                 if tarifa:
                     p_cliente, g_perez = float(tarifa[0]), float(tarifa[1])
@@ -1512,12 +1716,19 @@ class PerezBoostApp(ctk.CTk):
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
-                # 3. Guardar en BD
-                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster):
+                # 4. Guardar y Cerrar Pedido
+                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente):
 
-                    # 4. Bloque de Discord (El que me pasaste)
+                    # 5. Notificación Discord
                     if var_publicar.get():
                         try:
+                            # Numeración global del mes basada en fecha de inicio
+                            cur_seq = conn.cursor() # Reutilizamos conexión
+                            cur_seq.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_inicio LIKE ?", (f"{mes_inicio_iso}%",))
+                            num_orden_mes = cur_seq.fetchone()[0]
+                            
+                            titulo_discord = f"✅ PEDIDO #{num_orden_mes} DE {nombre_mes_es}"
+
                             url = obtener_config_sistema("discord_webhook")
                             if url:
                                 noti = DiscordNotifier(url)
@@ -1528,8 +1739,8 @@ class PerezBoostApp(ctk.CTk):
                                         "inline": True
                                     },
                                     {
-                                        "name": "🔥 Racha Mes", 
-                                        "value": f"{total_mes} Entregas\n\n**🎯 WinRate**\n`{wr}%`", 
+                                        "name": "🔥 Racha", 
+                                        "value": f"{total_mes_booster}º de {nombre_mes_es}\n\n**🎯 WinRate**\n`{wr}%`", 
                                         "inline": True
                                     },
                                     {
@@ -1539,14 +1750,15 @@ class PerezBoostApp(ctk.CTk):
                                     }
                                 ]
                                 noti.enviar_notificacion(
-                                    titulo=f"✅ ORDEN #{id_r} COMPLETADA", 
+                                    titulo=titulo_discord, 
                                     descripcion="", 
-                                    color=5763719, # COLOR_SUCCESS
+                                    color=5763719, 
                                     campos=campos_embed
                                 )
                         except Exception as e:
                             print(f"Error notificando: {e}")
 
+                    conn.close() # Cerramos conexión después de todo
                     registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada por {nom_booster}.")
                     messagebox.showinfo("Éxito", "¡Pedido finalizado!", parent=v)
                     v.destroy()
@@ -1555,14 +1767,15 @@ class PerezBoostApp(ctk.CTk):
                     if hasattr(self, 'actualizar_dashboard'):
                         self.actualizar_dashboard()
                 else:
+                    conn.close()
                     messagebox.showerror("Error", "No se pudo actualizar la base de datos.", parent=v)
 
             except ValueError:
                 messagebox.showerror("Error", "El WinRate debe ser un número.", parent=v)
 
-        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71", 
+        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71",
                       height=40, font=("Arial", 12, "bold"), command=finish).pack(pady=20)
-
+        
     def abrir_ventana_extender_tiempo(self):
         sel = self.tabla_pedidos.selection()
         if not sel: return

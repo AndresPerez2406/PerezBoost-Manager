@@ -218,10 +218,9 @@ def obtener_resumen_alertas():
     conn.close()
     return vencidos, stock
     
-def finalizar_pedido_db(id_pedido, wr_final, fecha_fin, elo_final, ganancia_empresa, pago_booster):
+def finalizar_pedido_db(id_pedido, wr_final, fecha_fin, elo_final, ganancia_empresa, pago_booster, pago_cliente):
     conn = conectar(); cursor = conn.cursor()
     try:
-
         if "/" in str(fecha_fin):
             fecha_db = datetime.strptime(fecha_fin, "%d/%m/%Y").strftime("%Y-%m-%d")
         else:
@@ -234,9 +233,10 @@ def finalizar_pedido_db(id_pedido, wr_final, fecha_fin, elo_final, ganancia_empr
                 fecha_fin_real = ?,
                 elo_final = ?,
                 ganancia_empresa = ?,
-                pago_booster = ? 
+                pago_booster = ?,
+                pago_cliente = ?
             WHERE id = ?
-        """, (wr_final, fecha_db, elo_final, float(ganancia_empresa), float(pago_booster), id_pedido))
+        """, (wr_final, fecha_db, elo_final, float(ganancia_empresa), float(pago_booster), float(pago_cliente), id_pedido))
         
         conn.commit()
         return True
@@ -351,7 +351,7 @@ def obtener_resumen_financiero_real(filtro_fecha=None):
             COUNT(*)
         FROM pedidos 
         WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ?  -- Usamos fecha_inicio para consistencia total V9.5
+        AND fecha_inicio LIKE ? 
     """, (f"{filtro_fecha}%",))
     
     res = cursor.fetchone()
@@ -569,23 +569,24 @@ def obtener_ranking_staff_db(filtro_fecha=None):
     return ranking
 
 def obtener_total_bote_ranking():
-    conn = conectar()
-    cursor = conn.cursor()
-
+    conn = conectar(); cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
 
-    cursor.execute("""
-        SELECT COUNT(*) 
+    sql = f"""
+        SELECT 
+            COUNT(*) + 
+            COALESCE(SUM(CASE WHEN wr >= 60 THEN 1 ELSE 0 END), 0) 
         FROM pedidos 
-        WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ?
-        AND wr > 60
-    """, (f"{mes_actual}%",))
+        WHERE estado = 'Terminado' AND fecha_inicio LIKE {P}
+    """
     
-    total_pedidos_validos = cursor.fetchone()[0] or 0
+    cursor.execute(sql, (f"{mes_actual}%",))
+    resultado = cursor.fetchone()
+    
+    total_bote = resultado[0] if resultado and resultado[0] else 0
+    
     conn.close()
-
-    return 25 + total_pedidos_validos
+    return total_bote
 
 def obtener_pedidos_mes_actual_db():
     conn = conectar()

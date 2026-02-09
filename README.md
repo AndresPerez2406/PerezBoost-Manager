@@ -1,62 +1,70 @@
 
-# PerezBoost Manager V9.5 🏆 (Finance & Operational Excellence)
+# PerezBoost Manager V10.0 ☁️ (Cloud Architecture Edition)
 
-Professional high-performance management suite for Elo Boosting services. Full control, automated reporting, and data-driven competition in a single interface.
+**Enterprise-grade management suite** designed for high-performance Elo Boosting services. Now powered by  **AWS Cloud Infrastructure** , enabling hybrid data synchronization, financial auditing, and scalable remote operations.
 
-**Version:** 9.5 | **Edition:** Platinum | **Python:** 3.10+
-
----
-
-## 🌟 What's New in V9.5 (The "CFO" Update)
-
-* **💰 Advanced Financial Suite:** Full control over Net Profit, Gross Income, and Pending Staff Payouts. No more manual math.
-* **💸 Automated Liquidation System:** One-click payroll settlement. Automatically groups finished orders per booster (e.g., `E4 + D1 + D3`) and generates a total to pay.
-* **🏆 Intelligent Leaderboard V2:** Monthly-reset MVP system. Points are now fully customizable from the Rates tab.
-  $$
-  Score = \sum (League\_Points_{Configurable}) - (Abandons \times 10)
-  $$
-* **☀️ Real-Time Profit Tracking:** New Dashboard card showing **Profit Today** vs  **Monthly Projections** .
-* **🛡️ Private Operational History:** Clean history view (hidden financial data) with automatic duration calculation (e.g., "⚡ <24h" or "3 days").
-* **🕵️ Audit "Black Box" Logs:** Enhanced traceability for every critical action (payouts, rate changes, status updates).
+**Version:** 10.0 | **Architecture:** Hybrid Cloud | **Stack:** Python 3.10+ & PostgreSQL (AWS RDS)
 
 ---
 
-## 🛠️ Core Features
+## 🚀 What's New in V10.0 (The Cloud Update)
 
-* **⚔️ Order Management:** Tracking with "Urgency Traffic Light" (Red/Yellow/Green) based on delivery deadlines.
-* **🤖 Discord Webhooks:** Automated high-impact Embeds for completed orders and stock updates.
-* **💰 Cash Flow Control:** Secure registry of net profits and staff payments, encrypted from non-admin eyes.
-* **🛡️ Proactive Security:** Automatic database backups and event logging for 100% traceability.
-
----
-
-## 🚀 Future Roadmap: The Path to PerezBoost Empire
-
-### 🔹 V10.0: The Cloud Era (Freedom)
-
-* **🌐 Cloud Migration:** Moving from local SQLite to PostgreSQL for remote access.
-* **📱 Web-View Dashboard:** Lightweight mobile-friendly web portal to check stats on the go.
-* **Multi-User Access:** Manager vs Admin permissions.
-
-### 🔹 V11.0: Intelligence & Automation (Autopilot)
-
-* **📈 Visual Analytics:** Financial pie charts and monthly growth bars (Matplotlib integration).
-* **🔮 Smart Assignment:** AI suggestions based on booster winrate and current rank.
+* **☁️ AWS RDS Integration:** Full migration to Amazon Web Services (Virginia). Data is no longer siloed on a local machine, ensuring enterprise-level durability.
+* **🔄 Bi-Directional Synchronization:**
+  * **Cloud Push (Backup):** Encrypted upload of local operational data to the cloud.
+  * **Cloud Pull (Restore):** Instant data retrieval to any authorized device, complete with automatic local failover backups.
+* **📈 Dynamic Financial Engines:** Advanced algorithms for calculating performance-based staff incentives and real-time net profit margins.
+* **🛡️ Resilient Infrastructure:** Zero-downtime architecture. Business data remains accessible and secure even in the event of local hardware failure.
 
 ---
 
-## ⚙️ Quick Installation
+## 🛠️ Core Capabilities
 
-1. **Clone & Enter:**
+### ⚡ Operational Efficiency
+
+* **Smart SLA Tracking:** "Traffic Light" system (Red/Yellow/Green) to visually prioritize orders based on delivery deadlines.
+* **Automated Logistics:** Real-time calculation of "Days per Order" efficiency metrics based on cloud timestamps.
+
+### 🤖 Automation & Notification
+
+* **Discord Webhooks:** High-impact, automated notifications for completed orders, ranking updates, and critical stock alerts sent directly to staff channels.
+* **One-Click Payroll:** Automated payroll settlement system. Groups completed orders by booster and calculates precise debt/payouts instantly.
+
+### 💰 Financial Intelligence
+
+* **Audit-Ready Logs:** Immutable logging of all financial transactions and rate changes.
+* **Hybrid Security:** Local SQLite for low-latency operations + Cloud PostgreSQL for data integrity and remote access.
+
+---
+
+## 🗺️ Engineering Roadmap
+
+We are following a strict development timeline to transform PerezBoost into a fully automated, headless platform.
+
+| **Version** | **Codename**        | **Status**     | **Key Objective**                                                                                      |
+| ----------------- | ------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **V10.0**   | **Cloud Hybrid**    | ✅**Deployed** | **AWS Infrastructure Integration.**Bi-directional Sync, Cloud Backups, and PostgreSQL Migration.             |
+| **V10.5**   | **The Owner's Eye** | 🔜*Next Step*      | **Web Dashboard (Streamlit).**Remote monitoring interface to view real-time profits and KPIs via Mobile/Web. |
+| **V11.0**   | **Multiplayer**     | 📅 Planned           | **Direct Cloud Connection.**Removal of local SQLite to enable concurrent multi-admin operations.             |
+| **V12.0**   | **Staff Portal**    | 🔮 Future            | **Booster Web App.**A dedicated portal for staff to self-report wins and progress, automating data entry.    |
+
+---
+
+## ⚙️ Quick Start
+
+1. **Clone Repository:**
    `git clone https://github.com/AndresPerez2406/PerezBoost-Manager.git`
    `cd PerezBoost-Manager`
-2. **Environment & Dependencies:**
+2. **Install Dependencies:**
    `pip install -r requirements.txt`
-3. **Run:**
+   *(Core libs: `customtkinter`, `psycopg2`, `pandas`, `matplotlib`)*
+3. **Cloud Configuration:**
+   Set up your AWS Endpoint and Credentials in `gui_main.py`.
+4. **Launch:**
    `python main.py`
 
 ---
 
 ## 👨‍💻 Developed by
 
-**Andres Perez** *High-Performance Software Specialist & Business Automation Expert*
+**Andres Perez** - *High-Performance Software Specialist & Business Automation Expert*
