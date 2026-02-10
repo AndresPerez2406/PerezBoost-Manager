@@ -16,7 +16,7 @@ venv/
 
 # --- Base de Datos & Backups ---
 perezboost.db
-.db
+*.db
 backups/
 *.sqlite3
 database_sqlite.py
