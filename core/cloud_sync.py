@@ -1,31 +1,65 @@
 import sqlite3
 import psycopg2
 from psycopg2 import extras
-import shutil
-from datetime import datetime
+import os
+import threading
+import time
+from dotenv import load_dotenv
 
+import os
+from dotenv import load_dotenv
 
-AWS_HOST = "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com"
-AWS_DB = "postgres"
-AWS_USER = "postgres"
-AWS_PASS = "Andres2406."
-AWS_PORT = "5432"
+MODO_DESARROLLO = False
 
-def logica_subir_a_nube(callback_exito, callback_error):
+if MODO_DESARROLLO:
+    load_dotenv(".env.dev")
+    print("🛠️ MODO DEV: Conectado a la base de datos de PRUEBAS")
+else:
+    load_dotenv(".env")
+    print("🚀 MODO PROD: Conectado a la base de datos REAL")
+
+CLOUD_URL = os.getenv("DATABASE_URL")
+
+load_dotenv()
+SUPABASE_URL = os.getenv("DATABASE_URL")
+
+AWS_CONF = {
+    "host": "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com",
+    "database": "postgres",
+    "user": "postgres",
+    "password": "Andres2406.",
+    "port": "5432"
+}
+
+DB_LOCAL = "perezboost.db"
+
+# =======================================================
+# 🛠️ MOTOR MAESTRO DE SUBIDA (GENÉRICO)
+# =======================================================
+
+def _motor_subida_postgres(nombre_nube, connection_params):
+    print(f"🚀 Iniciando subida a {nombre_nube}...")
     try:
-        conn_local = sqlite3.connect("perezboost.db")
+        conn_local = sqlite3.connect(DB_LOCAL)
         cur_local = conn_local.cursor()
-        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
+
+        if isinstance(connection_params, str):
+            conn_cloud = psycopg2.connect(connection_params)
+        else:
+            conn_cloud = psycopg2.connect(**connection_params)
+            
         cur_cloud = conn_cloud.cursor()
 
-        tablas = ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]
-        for t in tablas: cur_cloud.execute(f"DROP TABLE IF EXISTS {t} CASCADE;")
-
+        tablas = ["pedidos", "inventario", "boosters", "config_precios", "sistema_config", "logs"]
+        for t in tablas: 
+            cur_cloud.execute(f"DROP TABLE IF EXISTS {t} CASCADE;")
+            
         cur_cloud.execute("CREATE TABLE boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
         cur_cloud.execute("CREATE TABLE inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
         cur_cloud.execute("CREATE TABLE config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
         cur_cloud.execute("CREATE TABLE sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
-        cur_cloud.execute("CREATE TABLE logs_auditoria (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
+        cur_cloud.execute("CREATE TABLE logs (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
+        
         cur_cloud.execute("""
             CREATE TABLE pedidos (
                 id SERIAL PRIMARY KEY, booster_id INTEGER, booster_nombre VARCHAR(255),
@@ -33,53 +67,114 @@ def logica_subir_a_nube(callback_exito, callback_error):
                 fecha_limite VARCHAR(50), estado VARCHAR(50), elo_final VARCHAR(50),
                 wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50), 
                 pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION, 
-                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION, 
-                ajuste_motivo TEXT, pago_realizado INTEGER
+                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0, 
+                ajuste_motivo TEXT, pago_realizado INTEGER DEFAULT 0
             );
         """)
         conn_cloud.commit()
 
-        def migrar(tabla):
-            cur_local.execute(f"SELECT * FROM {tabla}")
+        def migrar_tabla(origen, destino):
+            cur_local.execute(f"SELECT * FROM {origen}")
             filas = cur_local.fetchall()
             if not filas: return
-            def limpiar(v): return None if v in [None, "NULL", "NONE", ""] else v
+
+            def limpiar(v): return None if v in ["NULL", "NONE", ""] else v
             filas_L = [tuple([limpiar(x) for x in f]) for f in filas]
-            placeholders = ",".join(["%s"] * len(filas_L[0]))
-            extras.execute_batch(cur_cloud, f"INSERT INTO {tabla} VALUES ({placeholders})", filas_L)
+            
+            cols = len(filas_L[0])
+            placeholders = ",".join(["%s"] * cols)
+            extras.execute_batch(cur_cloud, f"INSERT INTO {destino} VALUES ({placeholders})", filas_L)
 
-        migrar("boosters"); migrar("inventario"); migrar("config_precios")
-        migrar("sistema_config"); migrar("logs_auditoria"); migrar("pedidos")
+        migrar_tabla("boosters", "boosters")
+        migrar_tabla("inventario", "inventario")
+        migrar_tabla("config_precios", "config_precios")
+        migrar_tabla("sistema_config", "sistema_config")
+        migrar_tabla("logs_auditoria", "logs") 
+        migrar_tabla("pedidos", "pedidos")
 
-        for t in ["pedidos", "boosters", "inventario", "logs_auditoria"]:
+        for t in ["pedidos", "boosters", "inventario", "logs"]:
             try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
             except: pass
 
-        conn_cloud.commit(); conn_local.close(); conn_cloud.close()
-        callback_exito()
-    except Exception as e: callback_error(str(e))
+        conn_cloud.commit()
+        conn_local.close()
+        conn_cloud.close()
+        print(f"✅ Subida a {nombre_nube} COMPLETADA.")
+        return True
+
+    except Exception as e:
+        print(f"❌ Error subiendo a {nombre_nube}: {e}")
+        return False
+
+# =======================================================
+# 🌐 SUBIR (Push Dual)
+# =======================================================
+
+def logica_subir_a_nube(callback_exito, callback_error):
+    errores = []
+
+    def hilo_aws():
+        if not _motor_subida_postgres("AWS", AWS_CONF): errores.append("AWS falló")
+
+    def hilo_supabase():
+        if SUPABASE_URL:
+            if not _motor_subida_postgres("Supabase", SUPABASE_URL): errores.append("Supabase falló")
+        else:
+            errores.append("Falta URL Supabase")
+
+    t1 = threading.Thread(target=hilo_aws)
+    t2 = threading.Thread(target=hilo_supabase)
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+
+    time.sleep(0.5)
+
+    if not errores:
+        if callback_exito: callback_exito()
+    else:
+        if callback_error: callback_error(f"Errores: {', '.join(errores)}")
+
+# =======================================================
+# ⬇️ BAJAR (Pull Supabase)
+# =======================================================
 
 def logica_bajar_de_nube(callback_exito, callback_error):
     try:
 
-        shutil.copy2("perezboost.db", f"backup_pre_sync_{datetime.now().strftime('%H%M%S')}.db")
+        if not SUPABASE_URL: raise ValueError("No hay URL de Supabase")
 
-        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
+        conn_cloud = psycopg2.connect(SUPABASE_URL)
         cur_cloud = conn_cloud.cursor()
-        conn_local = sqlite3.connect("perezboost.db"); cur_local = conn_local.cursor()
+        conn_local = sqlite3.connect(DB_LOCAL)
+        cur_local = conn_local.cursor()
 
         cur_local.execute("PRAGMA foreign_keys = OFF;")
         for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]:
             cur_local.execute(f"DELETE FROM {t}")
 
-        def bajar(tabla):
-            cur_cloud.execute(f"SELECT * FROM {tabla}")
+        def bajar(tabla_nube, tabla_local):
+            cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
             filas = cur_cloud.fetchall()
-            if filas: cur_local.executemany(f"INSERT INTO {tabla} VALUES ({','.join(['?']*len(filas[0]))})", filas)
+            if filas:
+                placeholders = ",".join(["?"] * len(filas[0]))
+                cur_local.executemany(f"INSERT INTO {tabla_local} VALUES ({placeholders})", filas)
 
-        bajar("boosters"); bajar("inventario"); bajar("config_precios")
-        bajar("sistema_config"); bajar("logs_auditoria"); bajar("pedidos")
+        bajar("boosters", "boosters")
+        bajar("inventario", "inventario")
+        bajar("config_precios", "config_precios")
+        bajar("sistema_config", "sistema_config")
+        bajar("logs", "logs_auditoria")
+        bajar("pedidos", "pedidos")
 
-        conn_local.commit(); conn_local.close(); conn_cloud.close()
-        callback_exito()
-    except Exception as e: callback_error(str(e))
+        conn_local.commit()
+        conn_local.close()
+        conn_cloud.close()
+
+        print("⏳ Finalizando hilos y estabilizando GUI...")
+        time.sleep(1.0)
+
+        if callback_exito: callback_exito()
+
+    except Exception as e:
+        print(f"Error bajando: {e}")
+        if callback_error: callback_error(str(e))

@@ -1,24 +1,26 @@
 
-# PerezBoost Manager V10.0 ☁️ (Cloud Architecture Edition)
+# PerezBoost Manager V11.0 ☁️ (Hybrid Cloud Edition)
 
-**Enterprise-grade management suite** designed for high-performance Elo Boosting services. Now powered by  **AWS Cloud Infrastructure** , enabling hybrid data synchronization, financial auditing, and scalable remote operations.
+**Enterprise-grade management suite** designed for high-performance Elo Boosting services. Now powered by a  **Dual-Cloud Architecture (Supabase + AWS)** , combining the speed of local computing with the accessibility of the cloud.
 
-**Version:** 10.0 | **Architecture:** Hybrid Cloud | **Stack:** Python 3.10+ & PostgreSQL (AWS RDS)
+**Version:** 11.0 | **Architecture:** Hybrid (Local-First + Cloud Sync) | **Stack:** Python 3.10+, SQLite, PostgreSQL (Supabase/AWS)
 
 ---
 
-## 🚀 What's New in V10.0 (The Cloud Update)
+## 🚀 What's New in V11.0 (The Hybrid Update)
 
-* **☁️ AWS RDS Integration:** Full migration to Amazon Web Services (Virginia). Data is no longer siloed on a local machine, ensuring enterprise-level durability.
-* **🔄 Bi-Directional Synchronization:**
-  * **Cloud Push (Backup):** Encrypted upload of local operational data to the cloud.
-  * **Cloud Pull (Restore):** Instant data retrieval to any authorized device, complete with automatic local failover backups.
-* **📈 Dynamic Financial Engines:** Advanced algorithms for calculating performance-based staff incentives and real-time net profit margins.
-* **🛡️ Resilient Infrastructure:** Zero-downtime architecture. Business data remains accessible and secure even in the event of local hardware failure.
+* **🔄 Dual-Cloud Redundancy:** "Dual-Push" engine that simultaneously synchronizes data to:
+  1. **AWS RDS/S3:** For historical cold storage and auditing.
+  2. **Supabase (PostgreSQL):** For real-time data access via Mobile/Web.
+* **⚡ Non-Blocking Sync:** Background threading architecture allows database synchronization to happen silently without freezing the user interface.
+* **🛡️ Local-First Reliability:** The system operates on a local SQLite core, ensuring zero latency and full offline functionality. Internet is only required for backups.
+* **🔧 Self-Healing Data:** Automated integrity checks that sanitize `NULL` values and correct ID sequences during cloud migration.
 
 ---
 
 ## 🛠️ Core Capabilities
+
+*Designed to streamline high-volume boosting operations through three strategic pillars:*
 
 ### ⚡ Operational Efficiency
 
@@ -41,27 +43,53 @@
 
 We are following a strict development timeline to transform PerezBoost into a fully automated, headless platform.
 
-| **Version** | **Codename**        | **Status**     | **Key Objective**                                                                                      |
-| ----------------- | ------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **V10.0**   | **Cloud Hybrid**    | ✅**Deployed** | **AWS Infrastructure Integration.**Bi-directional Sync, Cloud Backups, and PostgreSQL Migration.             |
-| **V10.5**   | **The Owner's Eye** | 🔜*Next Step*      | **Web Dashboard (Streamlit).**Remote monitoring interface to view real-time profits and KPIs via Mobile/Web. |
-| **V11.0**   | **Multiplayer**     | 📅 Planned           | **Direct Cloud Connection.**Removal of local SQLite to enable concurrent multi-admin operations.             |
-| **V12.0**   | **Staff Portal**    | 🔮 Future            | **Booster Web App.**A dedicated portal for staff to self-report wins and progress, automating data entry.    |
+| **Version** | **Codename**         | **Status**     | **Key Objective**                                                                                                      |
+| ----------------- | -------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **V10.0**   | **Cloud Foundation** | ✅**Done**     | AWS Infrastructure Integration. Initial migration to cloud storage.                                                          |
+| **V11.0**   | **Hybrid Sync**      | ✅**Deployed** | ***Dual-Cloud Engine*** Simultaneous sync to Supabase & AWS with background threading and local-first architecture. |
+| **V11.5**   | **The Owner's Eye**  | 🔜*Next Step*      | **Web Dashboard (Streamlit)** Remote monitoring interface to view real-time profits and KPIs via Mobile/Web.          |
+| **V12.0**   | **Staff Portal**     | 📅 Planned           | **Booster Web App** A dedicated portal for staff to self-report wins and progress, automating data entry.             |
 
 ---
 
 ## ⚙️ Quick Start
 
-1. **Clone Repository:**
-   `git clone https://github.com/AndresPerez2406/PerezBoost-Manager.git`
-   `cd PerezBoost-Manager`
-2. **Install Dependencies:**
-   `pip install -r requirements.txt`
-   *(Core libs: `customtkinter`, `psycopg2`, `pandas`, `matplotlib`)*
-3. **Cloud Configuration:**
-   Set up your AWS Endpoint and Credentials in `gui_main.py`.
-4. **Launch:**
-   `python main.py`
+**1. Clone Repository:**
+
+**Bash**
+
+```
+git clone https://github.com/AndresPerez2406/PerezBoost-Manager.git
+cd PerezBoost-Manager
+```
+
+**2. Install Dependencies:**
+
+**Bash**
+
+```
+pip install -r requirements.txt
+```
+
+*(Core libs: `customtkinter`, `psycopg2-binary`, `python-dotenv`, `pandas`)*
+
+**3. Environment Setup:**
+
+Create a `.env` file in the root directory and add your Supabase credentials:
+
+**Fragmento de código**
+
+```
+DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres"
+```
+
+**4. Launch:**
+
+**Bash**
+
+```
+python main.py
+```
 
 ---
 
