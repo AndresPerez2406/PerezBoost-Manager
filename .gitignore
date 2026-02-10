@@ -1,24 +1,44 @@
-# Python
+# --- Python & Sistema ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.log
+.DS_Store
 
-# Entorno Virtual
+# --- Entorno Virtual ---
 .venv/
 env/
 venv/
 
-# Base de Datos
+# --- Seguridad ---
+.env
+.streamlit/secrets.toml
+
+# --- Base de Datos & Backups ---
 perezboost.db
 backups/
+*.sqlite3
+database_sqlite.py
 
-# Ejecutables y Compilación
+# --- Reportes ---
+*.xlsx
+*.csv
+*.pdf
+
+# Si guardas gráficos como imágenes temporalmente
+*.png
+*.jpg
+
+# --- Streamlit ---
+.streamlit/
+
+# --- Ejecutables y Compilación ---
 build/
 dist/
 *.spec
+*.exe
 
-# Archivos de Sistema y Editor
+# --- Configuración de IDEs ---
 .vscode/
 .idea/
 Thumbs.db

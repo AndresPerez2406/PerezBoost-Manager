@@ -1,21 +1,17 @@
 import os
 import sys
-import psycopg2
-from psycopg2 import extras
-import threading
-import sqlite3
-import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import customtkinter as ctk
 import pandas as pd
+import threading
 import matplotlib
 matplotlib.use("TkAgg") 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from discord_handler import DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
-import core.cloud_sync
+from core.discord_handler import DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
+from core.cloud_sync import logica_subir_a_nube, logica_bajar_de_nube
 from core.database import (
     actualizar_pedido_db, actualizar_booster_db, actualizar_inventario_db,
     agregar_booster, eliminar_booster, obtener_boosters_db,
@@ -29,8 +25,8 @@ from core.database import (
     obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
     obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
     obtener_resumen_financiero_real
-
 )
+
 from core.logic import (
     calcular_tiempo_transcurrido, calcular_pago_real, calcular_fecha_limite_sugerida
 )
@@ -40,83 +36,6 @@ from modules.inventario import (
 from modules.pedidos import (
     obtener_elos_en_stock, obtener_cuentas_filtradas_datos
 )
-
-AWS_HOST = "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com"
-AWS_DB = "postgres"
-AWS_USER = "postgres"
-AWS_PASS = "Andres2406."
-AWS_PORT = "5432"
-
-def logica_subir_a_nube(callback_exito, callback_error):
-    try:
-        conn_local = sqlite3.connect("perezboost.db")
-        cur_local = conn_local.cursor()
-        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
-        cur_cloud = conn_cloud.cursor()
-
-        tablas = ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]
-        for t in tablas: cur_cloud.execute(f"DROP TABLE IF EXISTS {t} CASCADE;")
-        
-        cur_cloud.execute("CREATE TABLE boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
-        cur_cloud.execute("CREATE TABLE inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
-        cur_cloud.execute("CREATE TABLE config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
-        cur_cloud.execute("CREATE TABLE sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
-        cur_cloud.execute("CREATE TABLE logs_auditoria (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
-        cur_cloud.execute("""
-            CREATE TABLE pedidos (
-                id SERIAL PRIMARY KEY, booster_id INTEGER, booster_nombre VARCHAR(255),
-                user_pass VARCHAR(255), elo_inicial VARCHAR(50), fecha_inicio VARCHAR(50),
-                fecha_limite VARCHAR(50), estado VARCHAR(50), elo_final VARCHAR(50),
-                wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50), 
-                pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION, 
-                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION, 
-                ajuste_motivo TEXT, pago_realizado INTEGER
-            );
-        """)
-        conn_cloud.commit()
-
-        def migrar(tabla):
-            cur_local.execute(f"SELECT * FROM {tabla}")
-            filas = cur_local.fetchall()
-            if not filas: return
-            def limpiar(v): return None if v in [None, "NULL", "NONE", ""] else v
-            filas_L = [tuple([limpiar(x) for x in f]) for f in filas]
-            placeholders = ",".join(["%s"] * len(filas_L[0]))
-            extras.execute_batch(cur_cloud, f"INSERT INTO {tabla} VALUES ({placeholders})", filas_L)
-
-        migrar("boosters"); migrar("inventario"); migrar("config_precios")
-        migrar("sistema_config"); migrar("logs_auditoria"); migrar("pedidos")
-
-        for t in ["pedidos", "boosters", "inventario", "logs_auditoria"]:
-            try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
-            except: pass
-
-        conn_cloud.commit(); conn_local.close(); conn_cloud.close()
-        callback_exito()
-    except Exception as e: callback_error(str(e))
-
-def logica_bajar_de_nube(callback_exito, callback_error):
-    try:
-        shutil.copy2("perezboost.db", f"backup_pre_sync_{datetime.now().strftime('%H%M%S')}.db")
-        conn_cloud = psycopg2.connect(host=AWS_HOST, database=AWS_DB, user=AWS_USER, password=AWS_PASS, port=AWS_PORT)
-        cur_cloud = conn_cloud.cursor()
-        conn_local = sqlite3.connect("perezboost.db"); cur_local = conn_local.cursor()
-
-        cur_local.execute("PRAGMA foreign_keys = OFF;")
-        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]:
-            cur_local.execute(f"DELETE FROM {t}")
-        
-        def bajar(tabla):
-            cur_cloud.execute(f"SELECT * FROM {tabla}")
-            filas = cur_cloud.fetchall()
-            if filas: cur_local.executemany(f"INSERT INTO {tabla} VALUES ({','.join(['?']*len(filas[0]))})", filas)
-
-        bajar("boosters"); bajar("inventario"); bajar("config_precios")
-        bajar("sistema_config"); bajar("logs_auditoria"); bajar("pedidos")
-
-        conn_local.commit(); conn_local.close(); conn_cloud.close()
-        callback_exito()
-    except Exception as e: callback_error(str(e))
 
 # =============================================================================
 # CLASE PRINCIPAL: PEREZBOOST APP
@@ -229,26 +148,40 @@ class PerezBoostApp(ctk.CTk):
         style.map("Treeview", background=[('selected', '#1f538d')])
 
     def copiar_info_booster(self):
+
         if not self.tabla_pedidos: return
         sel = self.tabla_pedidos.selection()
         if not sel: return
+        
         val = self.tabla_pedidos.item(sel)['values']
-        cuenta = val[4]
+        cuenta = val[4]      
         fecha_raw = str(val[6])
+
+        fecha_bonita = fecha_raw
         try:
             meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            partes = fecha_raw.split("-")
-            dia = int(partes[2])
-            mes_nombre = meses[int(partes[1]) - 1]
-            fecha_natural = f"{dia} {mes_nombre}"
-        except:
-            fecha_natural = fecha_raw
 
-        texto_final = f"{cuenta} - {fecha_natural}"
+            fecha_limpia = fecha_raw.split(' ')[0]
+
+            dt = None
+            if "-" in fecha_limpia:
+                dt = datetime.strptime(fecha_limpia, "%Y-%m-%d")
+            elif "/" in fecha_limpia:
+                dt = datetime.strptime(fecha_limpia, "%d/%m/%Y")
+            
+            if dt:
+                fecha_bonita = f"{dt.day} {meses[dt.month - 1]}"
+                
+        except Exception as e:
+            print(f"Error formateando fecha: {e}")
+
+        texto_final = f"{cuenta} - {fecha_bonita}"
+        
         self.clipboard_clear()
         self.clipboard_append(texto_final)
-        print(f"Copiado: {texto_final}")
+
+        print(f"✅ Copiado: {texto_final}")
         
     # =========================================================================
     # 2. SECCIÓN: DASHBOARD
@@ -995,121 +928,84 @@ class PerezBoostApp(ctk.CTk):
         self.actualizar_analitica()
 
     def actualizar_analitica(self):
-        for widget in self.kpi_frame.winfo_children(): widget.destroy()
-        for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
-        
-        datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), self.combo_booster_rep.get())
-        if not datos: return
 
-        t_staff, t_neto, t_bote, t_ventas = 0, 0, 0, 0
-
-        for r in datos:
-            pago_staff = float(str(r[12]).replace('$','')) if r[12] else 0
-            ganancia_bruta = float(str(r[13]).replace('$','')) if r[13] else 0
-            try: wr = float(r[9]) 
-            except: wr = 0
-
-            bote_visual = 2.0 if wr >= 60 else 1.0  
-            ganancia_neta = ganancia_bruta - 1.0    
-            total_cliente = pago_staff + ganancia_neta + bote_visual 
-
-
-            t_staff += pago_staff
-            t_neto += ganancia_neta
-            t_bote += bote_visual
-            t_ventas += total_cliente
-
-            self.tabla_rep.insert("", "end", values=(
-                r[2], r[8], "---", 
-                f"${pago_staff:.2f}", f"${ganancia_neta:.2f}", 
-                f"${bote_visual:.2f}", f"${total_cliente:.2f}"
-            ))
-
-        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${t_staff:.2f}", "#3498db", 0)
-        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${t_neto:.2f}", "#2ecc71", 1)
-        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${t_bote:.2f}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "TOTAL VENTAS", f"${t_ventas:.2f}", "#9b59b6", 3)
-        
-    def actualizar_analitica(self):
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
         for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
-        booster_seleccionado = self.combo_booster_rep.get()
-        datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), booster_seleccionado)
+        mes_sel = self.combo_mes.get()
+        booster_sel = self.combo_booster_rep.get()
+        datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), booster_sel)
 
-        ganancia_neta_perez = 0.0
-        pago_total_staff = 0.0
-        total_bote = 0.0
-        conteo_terminados = 0
-        dias_totales = 0
-        
-        suma_total_clientes = 0.0 
+        t_staff, t_neto, t_bote, t_ventas = 0.0, 0.0, 0.0, 0.0
+        conteo, dias_totales = 0, 0
 
-        def limpiar_dinero(valor):
-            try:
-                if valor is None or valor == "": return 0.0
-                return float(str(valor).replace('$', '').replace(',', '').strip())
+        def limpiar(v):
+            try: return float(str(v).replace('$','').replace(',','').strip()) if v else 0.0
             except: return 0.0
 
-        if datos:
-            for r in datos:
-                conteo_terminados += 1
+        if not datos:
+            ctk.CTkLabel(self.graficos_frame, text="Sin registros").pack(expand=True)
+            return
 
-                g_bruta_db = limpiar_dinero(r[13])
-                p_row = limpiar_dinero(r[12])      
+        for r in datos:
+            conteo += 1
+            v_total_cli = limpiar(r[11])
+            v_pago_staff = limpiar(r[12])
 
-                try: val_wr = float(r[9]) if r[9] is not None else 0.0
-                except: val_wr = 0.0
+            txt_dias = "⚡ <24h"
+            try:
+                f_ini_str = str(r[5]).split(' ')[0] if r[5] else ""
+                f_fin_str = str(r[10]).split(' ')[0] if r[10] else ""
+                if f_ini_str and f_fin_str:
+                    d_ini = d_fin = None
+                    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                        try: 
+                            if not d_ini: d_ini = datetime.strptime(f_ini_str, fmt)
+                            if not d_fin: d_fin = datetime.strptime(f_fin_str, fmt)
+                        except: continue
+                    if d_ini and d_fin:
+                        diff = (d_fin - d_ini).days
+                        if diff > 0:
+                            txt_dias = f"{diff} días"
+                            dias_totales += diff
+            except: txt_dias = "N/A"
 
-                if val_wr >= 60:
-                    bote_visual = 2.0
-                else:
-                    bote_visual = 1.0 
+            try: wr = float(r[9]) if r[9] else 0.0
+            except: wr = 0.0
 
-                descuento_base = 1.0 
-                g_neta = g_bruta_db - descuento_base
+            valor_bote = 2.0 if wr >= 60 else 1.0
 
-                t_cli = p_row + g_neta + bote_visual
+            mi_neto_real = v_total_cli - v_pago_staff - valor_bote
 
-                ganancia_neta_perez += g_neta
-                pago_total_staff += p_row
-                total_bote += bote_visual
-                suma_total_clientes += t_cli
+            t_staff += v_pago_staff
+            t_neto += mi_neto_real
+            t_bote += valor_bote
+            t_ventas += v_total_cli
 
-                try:
-                    if r[5] and r[10]:
-                        str_ini = str(r[5])[:10]
-                        str_fin = str(r[10])[:10]
-                        try: ini = datetime.strptime(str_ini, "%Y-%m-%d"); fin = datetime.strptime(str_fin, "%Y-%m-%d")
-                        except: ini = datetime.strptime(str_ini, "%d/%m/%Y"); fin = datetime.strptime(str_fin, "%d/%m/%Y")
-                        dias = (fin - ini).days
-                        dias_final = dias if dias > 0 else 1
-                        dias_totales += dias_final
-                        d_txt = f"{dias_final} d"
-                    else: d_txt = "N/A"
-                except: d_txt = "-"
+            self.tabla_rep.insert("", "end", values=(
+                r[2], r[8], txt_dias, 
+                f"${v_pago_staff:.2f}", 
+                f"${mi_neto_real:.2f}", 
+                f"${valor_bote:.2f}", 
+                f"${v_total_cli:.2f}"
+            ))
 
-                self.tabla_rep.insert("", "end", values=(
-                    r[2], r[8], d_txt, 
-                    f"${p_row:.2f}", 
-                    f"${g_neta:.2f}", 
-                    f"${bote_visual:.2f}", 
-                    f"${t_cli:.2f}"        
-                ))
+        # --- 🛠️ AJUSTE MANUAL ENERO Pagos WR (Filtro Todos y Enero) ---
+        if mes_sel == "Todos" or mes_sel == "Enero":
+            t_bote -= 5.0
+            t_neto += 5.0
+        # --------------------------------------
 
-        promedio = dias_totales / conteo_terminados if conteo_terminados > 0 else 0
+        prom_dias = dias_totales / conteo if conteo > 0 else 0
+        
+        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${t_staff:.2f}", "#3498db", 0)
+        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${t_neto:.2f}", "#2ecc71", 1)
+        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${t_bote:.2f}", "#f1c40f", 2)
+        self.crear_card_mini(self.kpi_frame, "VENTAS TOTALES", f"${t_ventas:.2f}", "#9b59b6", 3)
+        self.crear_card_mini(self.kpi_frame, "PROM. DÍAS", f"{prom_dias:.1f} d", "#e67e22", 4)
 
-        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${pago_total_staff:.2f}", "#3498db", 0)
-        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${ganancia_neta_perez:.2f}", "#2ecc71", 1)
-        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${total_bote:.2f}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "TOTAL VENTAS", f"${suma_total_clientes:.2f}", "#9b59b6", 3)
-        self.crear_card_mini(self.kpi_frame, "EFICIENCIA", f"{promedio:.1f} d", "#e67e22", 4)
-
-        if conteo_terminados > 0:
-            self.dibujar_grafico_financiero(ganancia_neta_perez, pago_total_staff, total_bote, booster_seleccionado)
-        else:
-            ctk.CTkLabel(self.graficos_frame, text="Sin datos para graficar", text_color="gray").pack(expand=True)
+        self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
 
     def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
         plt.close('all')
@@ -1482,8 +1378,7 @@ class PerezBoostApp(ctk.CTk):
         self.actualizar_lista_liquidaciones()
 
     def actualizar_tarjetas_finanzas(self, seleccion):
-        """Recalcula los números según el mes seleccionado en el combo."""
-
+        """Recalcula el Dashboard Financiero con el ajuste manual de Enero (V10.5)"""
         for widget in self.stats_container.winfo_children():
             widget.destroy()
 
@@ -1498,10 +1393,19 @@ class PerezBoostApp(ctk.CTk):
             except:
                 filtro_db = None
 
-        utilidad_bruta, total_cli, total_boo, count_pedidos = obtener_balance_general_db(filtro_db)
+        resumen = obtener_resumen_mensual_db(filtro_db)
+        cant_term = float(resumen[0] or 0)
+        cant_high_wr = float(resumen[3] or 0)
+        _, total_cli, total_staff, _ = obtener_balance_general_db(filtro_db)
 
-        bote_periodo = float(count_pedidos) * 1.0 
-        utilidad_neta_real = utilidad_bruta - bote_periodo
+        bote_real = cant_term + cant_high_wr
+        utilidad_neta_real = total_cli - total_staff - bote_real
+
+        ## --- 🛠️ AJUSTE MANUAL ENERO Pagos WR (Filtro Todos y Enero) ---
+        if seleccion == "Todos" or seleccion == "Enero":
+            bote_real -= 5.0
+            utilidad_neta_real += 5.0
+        # --------------------------------------------------------
 
         def crear_card(parent, titulo, valor, color):
             f = ctk.CTkFrame(parent, fg_color="transparent")
@@ -1509,12 +1413,13 @@ class PerezBoostApp(ctk.CTk):
             ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), text_color="gray").pack()
             ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 24, "bold"), text_color=color).pack()
 
-        crear_card(self.stats_container, "INGRESOS", total_cli, "#2ecc71") 
-        crear_card(self.stats_container, "COSTO STAFF", total_boo, "#e74c3c")      
-        crear_card(self.stats_container, "UTILIDAD NETA", utilidad_neta_real, "#3498db")
-
-        lbl_bote = "BOTE MES" if seleccion != "Todos" else "BOTE TOTAL"
-        crear_card(self.stats_container, lbl_bote, bote_periodo, "#f1c40f")
+        crear_card(self.stats_container, "INGRESOS TOTALES", total_cli, "#9b59b6") 
+        crear_card(self.stats_container, "COSTO STAFF", total_staff, "#e74c3c")      
+        
+        lbl_bote = "BOTE ACUMULADO" if seleccion == "Todos" else f"BOTE {seleccion.upper()}"
+        crear_card(self.stats_container, lbl_bote, bote_real, "#f1c40f") 
+        
+        crear_card(self.stats_container, "MI NETO (Bolsillo)", utilidad_neta_real, "#2ecc71")
 
     def actualizar_lista_liquidaciones(self):
         for widget in self.container_pagos.winfo_children():
