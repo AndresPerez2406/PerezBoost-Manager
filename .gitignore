@@ -12,6 +12,7 @@ venv/
 
 # --- Seguridad ---
 .env
+.env.dev
 .streamlit/secrets.toml
 
 # --- Base de Datos & Backups ---
