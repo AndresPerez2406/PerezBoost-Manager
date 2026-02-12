@@ -41,27 +41,25 @@ load_dotenv(dotenv_path=env_prod, override=True)
 
 def get_connection():
     url = os.getenv("DATABASE_URL")
-    if not url:
-        st.error("❌ ERROR: No se encontró la variable DATABASE_URL en los Secrets.")
-        return None
+    if not url: return None
     try:
         return psycopg2.connect(url)
     except Exception as e:
-        st.error(f"❌ ERROR DE CONEXIÓN: {e}")
+        st.error(f"⚠️ Error de red: {e}")
         return None
 
 def run_query(query):
     conn = get_connection()
     if conn:
-        try: 
-            df = pd.read_sql(query, conn)
-            conn.close() 
-            return df
-        except Exception as e: 
-            st.error(f"❌ ERROR EN CONSULTA: {e}")
+        try:
+            with conn:
+                return pd.read_sql(query, conn)
+        except Exception as e:
+            st.error(f"❌ Error en datos: {e}")
             return pd.DataFrame()
+        finally:
+            conn.close() 
     return pd.DataFrame()
-
 def clean_num(val):
     if val is None or pd.isna(val) or str(val).strip() == "": return 0.0
     s = str(val).replace('$', '').replace(',', '').strip()
