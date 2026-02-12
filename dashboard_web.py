@@ -71,7 +71,7 @@ with col_t:
     st.title("🚀 PerezBoost | Monitor & Analítica")
     st.caption(f"Filtrado por FECHA DE INICIO • {datetime.now().strftime('%d/%m/%Y')}")
 with col_b:
-    if st.button("Salir"): 
+    if st.button("Salir"):
         st.session_state.authenticated = False
         st.rerun()
 
@@ -105,7 +105,7 @@ stock_val = df_stock['total'].iloc[0] if not df_stock.empty else 0
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("📦 Activos", activos_val, delta="En curso")
 k2.metric("🧊 Stock", stock_val, delta="Cuentas")
-k3.metric("💰 Proyección Mes", f"${neto_caja:,.2f}", delta="Iniciados este mes")
+k3.metric("💰 Ganancia Neta", f"${neto_caja:,.2f}", delta="Mes Actual")
 k4.metric("📅 Fecha", hoy)
 
 st.divider()
