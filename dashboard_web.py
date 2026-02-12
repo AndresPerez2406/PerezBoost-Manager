@@ -40,8 +40,15 @@ env_prod = Path('.') / '.env'
 load_dotenv(dotenv_path=env_prod, override=True)
 
 def get_connection():
-    try: return psycopg2.connect(os.getenv("DATABASE_URL"))
-    except: return None
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        st.error("❌ ERROR: No se encontró la variable DATABASE_URL en los Secrets.")
+        return None
+    try:
+        return psycopg2.connect(url)
+    except Exception as e:
+        st.error(f"❌ ERROR DE CONEXIÓN: {e}")
+        return None
 
 def run_query(query):
     conn = get_connection()
@@ -51,7 +58,7 @@ def run_query(query):
             conn.close() 
             return df
         except Exception as e: 
-            st.error(f"Error SQL: {e}")
+            st.error(f"❌ ERROR EN CONSULTA: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
 
