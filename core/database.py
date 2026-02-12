@@ -262,7 +262,7 @@ def obtener_historial_completo():
                wr
         FROM pedidos 
         WHERE estado IN ('Terminado', 'Abandonado') 
-        ORDER BY fecha_fin_real DESC, id DESC
+        ORDER BY fecha_inicio DESC, id DESC
     """)
     data = cursor.fetchall()
     conn.close()

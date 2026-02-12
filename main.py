@@ -434,7 +434,7 @@ class PerezBoostApp(ctk.CTk):
         frame_cloud = ctk.CTkFrame(self.content_frame, fg_color="#2d2042", corner_radius=10) 
         frame_cloud.pack(fill="x", padx=30, pady=10)
 
-        ctk.CTkLabel(frame_cloud, text="☁️ SINCRONIZACIÓN NUBE (AWS)", font=("Arial", 14, "bold"), text_color="#a29bfe").pack(anchor="w", padx=15, pady=(10,5))
+        ctk.CTkLabel(frame_cloud, text="☁️ SINCRONIZACIÓN NUBE", font=("Arial", 14, "bold"), text_color="#a29bfe").pack(anchor="w", padx=15, pady=(10,5))
 
         btns_cloud = ctk.CTkFrame(frame_cloud, fg_color="transparent")
         btns_cloud.pack(pady=10)
@@ -451,7 +451,7 @@ class PerezBoostApp(ctk.CTk):
 
         btn_bajar = ctk.CTkButton(
             btns_cloud, 
-            text="⬇️ BAJAR de Nube\n(Restaurar)", 
+            text="⬇️ BAJAR de Nube\n(Restore)", 
             fg_color="#e67e22", hover_color="#d35400", 
             width=160, height=50,
             font=("Arial", 12, "bold"),
@@ -459,7 +459,7 @@ class PerezBoostApp(ctk.CTk):
         )
         btn_bajar.pack(side="left", padx=20)
 
-        ctk.CTkLabel(frame_cloud, text="Nota: 'Subir' guarda tu PC en AWS. 'Bajar' trae AWS a tu PC (sobrescribe local).", font=("Arial", 10, "italic"), text_color="gray").pack(pady=(0,10))
+        ctk.CTkLabel(frame_cloud, text="Nota: 'Subir' guarda tu PC en la nube. 'Bajar' trae la nube a tu PC (sobrescribe local).", font=("Arial", 10, "italic"), text_color="gray").pack(pady=(0,10))
     def guardar_webhooks_discord(self):
         url_pedidos = self.entry_webhook.get().strip()
         url_ranking = self.entry_webhook_rank.get().strip()
@@ -722,7 +722,7 @@ class PerezBoostApp(ctk.CTk):
         headers = ["#", "STAFF", "CUENTA / ELO FINAL", "WR", "INICIO", "FIN", "DURACIÓN", ""]
         
         for col, head, ancho in zip(cols, headers, anchos):
-            self.tabla_historial.heading(col, text=head)
+            self.tabla_historial.heading(col, text=head, command=lambda c=col: self.ordenar_columna(c, False))
             
             if col == "estado_oculto": 
                 self.tabla_historial.column(col, width=0, stretch=tk.NO)
@@ -744,6 +744,36 @@ class PerezBoostApp(ctk.CTk):
         
         self.filtrar_historial()
         
+    def ordenar_columna(self, col, reverse):
+        """Ordena las filas del Treeview al hacer clic en el encabezado"""
+        l = [(self.tabla_historial.set(k, col), k) for k in self.tabla_historial.get_children('')]
+
+        try:
+
+            if col in ("inicio", "fin"):
+                def convertir_fecha(txt):
+                    try:
+
+                        txt = str(txt).split(' ')[0].strip()
+                        return datetime.strptime(txt, "%d/%m/%Y")
+                    except:
+                        return datetime.min
+                
+                l.sort(key=lambda t: convertir_fecha(t[0]), reverse=reverse)
+
+            elif col == "id_visual":
+                 l.sort(key=lambda t: int(t[0]), reverse=reverse)
+
+            else:
+                l.sort(reverse=reverse)
+        except Exception as e:
+            print(f"Error ordenando: {e}")
+            l.sort(reverse=reverse)
+
+        for index, (val, k) in enumerate(l):
+            self.tabla_historial.move(k, '', index)
+        self.tabla_historial.heading(col, command=lambda: self.ordenar_columna(col, not reverse))
+        
     def filtrar_historial(self, solo_abandonos=False):
         query = self.entry_busqueda_h.get().lower()
         if not self.tabla_historial: return
@@ -752,8 +782,8 @@ class PerezBoostApp(ctk.CTk):
             self.tabla_historial.delete(item)
         
         try:
-            datos = obtener_historial_completo() 
-            contador_visual = 1 
+            datos = obtener_historial_completo()
+            contador_visual = 1
             
             for row in datos:
 
@@ -793,7 +823,7 @@ class PerezBoostApp(ctk.CTk):
                     self.tabla_historial.insert("", "end", values=(
                         contador_visual, 
                         booster, 
-                        f"{user} -> {elo_fin}", 
+                        f"{user} -> {elo_fin}",     
                         f"{wr}%" if wr else "-", 
                         f_v(ini_raw), 
                         f_v(fin_raw), 
@@ -1097,7 +1127,7 @@ class PerezBoostApp(ctk.CTk):
         self.limpiar_pantalla()
         self.configurar_estilo_tabla()
 
-        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         fecha_hoy = datetime.now()
         mes_actual_idx = fecha_hoy.month - 1
@@ -1498,19 +1528,32 @@ class PerezBoostApp(ctk.CTk):
         id_r = val_fila[1]
         nom_booster = val_fila[2]
 
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+            mes_actual_iso = datetime.now().strftime("%Y-%m")
+            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_actual_iso}%",))
+            num_orden_mes = cursor.fetchone()[0] + 1
+            conn.close()
+        except:
+            num_orden_mes = "?"
+
         tarifas_raw = obtener_config_precios()
         tarifas = [t[0] for t in tarifas_raw]
-        
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 520); v.attributes("-topmost", True)
-        v.title(f"Finalizar Orden #{id_r}")
-        
-        ctk.CTkLabel(v, text="FINALIZAR PEDIDO", font=("Arial", 16, "bold")).pack(pady=(20,10))
+
+        v = ctk.CTkToplevel(self)
+        self.centrar_ventana(v, 400, 520)
+        v.attributes("-topmost", True)
+
+        v.title(f"Finalizar Orden #{num_orden_mes}")
 
         ctk.CTkLabel(v, text="¿En qué Elo quedó la cuenta?").pack()
-        cb_div = ctk.CTkOptionMenu(v, values=tarifas, width=250); cb_div.pack(pady=5)
+        cb_div = ctk.CTkOptionMenu(v, values=tarifas, width=250)
+        cb_div.pack(pady=5)
         
         ctk.CTkLabel(v, text="WinRate Final (%):").pack()
-        e_wr = ctk.CTkEntry(v, placeholder_text="Ej: 85"); e_wr.pack(pady=5)
+        e_wr = ctk.CTkEntry(v, placeholder_text="Ej: 85")
+        e_wr.pack(pady=5)
 
         var_publicar = ctk.BooleanVar(value=True) 
         chk_discord = ctk.CTkCheckBox(
@@ -1519,7 +1562,7 @@ class PerezBoostApp(ctk.CTk):
             checkbox_height=20, checkbox_width=20
         )
         chk_discord.pack(pady=(15, 10))
-        
+
         def finish():
             try:
                 val_wr = e_wr.get()
@@ -1555,6 +1598,7 @@ class PerezBoostApp(ctk.CTk):
                 fecha_inicio_str = res_fecha[0] if res_fecha else fecha_hoy_iso
 
                 try:
+
                     if "/" in str(fecha_inicio_str):
                         f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%d/%m/%Y")
                     else:
@@ -1572,10 +1616,11 @@ class PerezBoostApp(ctk.CTk):
 
                     if var_publicar.get():
                         try:
+
                             cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_inicio LIKE ?", (f"{mes_inicio_iso}%",))
-                            num_orden_mes = cursor.fetchone()[0]
+                            num_orden_discord = cursor.fetchone()[0]
                             
-                            titulo_discord = f"✅ PEDIDO #{num_orden_mes} DE {nombre_mes_es}"
+                            titulo_discord = f"✅ PEDIDO #{num_orden_discord} DE {nombre_mes_es}"
                             url = obtener_config_sistema("discord_webhook")
                             
                             if url:

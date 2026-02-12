@@ -6,13 +6,12 @@ COLOR_SUCCESS = 5763719   # Verde
 COLOR_INFO = 3447003      # Azul
 COLOR_WARNING = 16776960  # Amarillo
 COLOR_DANGER = 15158332   # Rojo
-
+version = "V11.5"
 class DiscordNotifier:
     def __init__(self, webhook_url):
         self.webhook_url = webhook_url
 
     def _enviar_async(self, payload):
-        """Envía la petición en un hilo separado para no congelar la GUI."""
         try:
             if not self.webhook_url or self.webhook_url.strip() == "":
                 return
@@ -31,7 +30,7 @@ class DiscordNotifier:
             "description": str(descripcion),
             "color": color,
             "footer": {
-                "text": f"PerezBoost Manager V11.0 • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                "text": f"PerezBoost Manager {version}) • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                 "icon_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png"
             },
             "timestamp": datetime.utcnow().isoformat()
@@ -45,7 +44,7 @@ class DiscordNotifier:
             embed["fields"] = campos
 
         payload = {
-            "username": "PerezBoost Bot V10.0",
+            "username": f"PerezBoost_Manager Bot {version}",
             "avatar_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png",
             "embeds": [embed]
         }

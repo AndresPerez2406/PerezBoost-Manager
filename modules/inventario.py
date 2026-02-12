@@ -36,7 +36,7 @@ def registrar_lote_gui(texto_masivo, elo):
     exitos, errores = 0, 0
 
     for linea in lineas:
-        clean_line = linea.replace("---", ":").replace("    ", ":").strip()
+        clean_line = linea.replace("----", ":").replace("    ", ":").strip()
         
         if ":" in clean_line:
             parts = clean_line.split(":")
