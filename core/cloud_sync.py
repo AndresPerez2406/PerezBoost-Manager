@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import os
 from dotenv import load_dotenv
 
-MODO_DESARROLLO = False
+MODO_DESARROLLO = True
 
 if MODO_DESARROLLO:
     load_dotenv(".env.dev")

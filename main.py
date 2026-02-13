@@ -882,20 +882,21 @@ class PerezBoostApp(ctk.CTk):
         table_frame = ctk.CTkFrame(main_container, fg_color="transparent")
         table_frame.pack(fill="both", expand=True, pady=10)
 
-        cols = ("booster", "elo", "demora", "pago_b", "ganancia_p", "bote", "total")
+        cols = ("#", "booster", "elo", "demora", "pago_b", "ganancia_p", "bote", "total")
         self.tabla_rep = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
-        
+
         headers = {
+            "#": "N°", 
             "booster": "STAFF", 
             "elo": "ELO FINAL", 
             "demora": "DÍAS", 
             "pago_b": "PAGO STAFF", 
             "ganancia_p": "MI NETO", 
-            "bote": "BOTE",          
+            "bote": "BOTE",           
             "total": "TOTAL CLI"
         }
-        
-        anchos = [120, 100, 60, 100, 100, 80, 100]
+
+        anchos = [40, 120, 100, 60, 100, 100, 80, 100]
         
         for c, w in zip(cols, anchos):
             self.tabla_rep.heading(c, text=headers[c])
@@ -929,8 +930,9 @@ class PerezBoostApp(ctk.CTk):
             ctk.CTkLabel(self.graficos_frame, text="Sin registros").pack(expand=True)
             return
 
+        contador_visual = 1
+
         for r in datos:
-            conteo += 1
             v_total_cli = limpiar(r[11])
             v_pago_staff = limpiar(r[12])
 
@@ -954,29 +956,30 @@ class PerezBoostApp(ctk.CTk):
 
             try: wr = float(r[9]) if r[9] else 0.0
             except: wr = 0.0
-
             valor_bote = 2.0 if wr >= 60 else 1.0
-
             mi_neto_real = v_total_cli - v_pago_staff - valor_bote
 
             t_staff += v_pago_staff
             t_neto += mi_neto_real
             t_bote += valor_bote
             t_ventas += v_total_cli
+            conteo += 1
 
             self.tabla_rep.insert("", "end", values=(
-                r[2], r[8], txt_dias, 
+                contador_visual, 
+                r[2],            
+                r[8],            
+                txt_dias,        
                 f"${v_pago_staff:.2f}", 
                 f"${mi_neto_real:.2f}", 
                 f"${valor_bote:.2f}", 
                 f"${v_total_cli:.2f}"
             ))
+            contador_visual += 1
 
-        # --- 🛠️ AJUSTE MANUAL ENERO Pagos WR (Filtro Todos y Enero) ---
         if mes_sel == "Todos" or mes_sel == "Enero":
             t_bote -= 5.0
             t_neto += 5.0
-        # --------------------------------------
 
         prom_dias = dias_totales / conteo if conteo > 0 else 0
         
