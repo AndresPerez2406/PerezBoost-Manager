@@ -184,75 +184,96 @@ with tab_reportes:
         if st.button("🔄 Refrescar"): st.rerun()
 
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
+    
     if mes_sel != "Todos":
         query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{str(meses_nombres.index(mes_sel)).zfill(2)}%'"
+    
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
     query_base += " ORDER BY fecha_inicio ASC"
+    
     df_rep = run_query(query_base)
     
     if not df_rep.empty:
-        t_staff, t_neto, t_bote, conteo = 0.0, 0.0, 0.0, 0
+        t_staff, t_neto, t_bote, t_ventas = 0.0, 0.0, 0.0, 0.0
+        conteo = 0
         reporte_data = []
         
         for i, row in enumerate(df_rep.itertuples(), 1):
             conteo += 1
-            p_cli, p_boo, wr = clean_num(row.pago_cliente), clean_num(row.pago_booster), clean_num(row.wr)
-            bote = 2.0 if wr >= 60 else 1.0
-            neto = p_cli - p_boo - bote
-            t_staff += p_boo; t_neto += neto; t_bote += bote
-            
-            # --- MOTOR DE CÁLCULO DE DÍAS (BLINDADO) ---
-            demora_txt = ""
+            p_cli = clean_num(row.pago_cliente)
+            p_boo = clean_num(row.pago_booster)
+
+            txt_dias = "⚡ <24h"
             try:
-                # Extraemos solo la parte de la fecha (YYYY-MM-DD) ignorando horas si existen
-                # Usamos dayfirst=True por si acaso el staff mete fechas manuales
-                f_entrega = pd.to_datetime(row.fecha_fin_real, dayfirst=True).date()
-                f_limite = pd.to_datetime(row.fecha_limite, dayfirst=True).date()
+                f_ini_str = str(row.fecha_inicio).split(' ')[0] if row.fecha_inicio else ""
+                f_fin_str = str(row.fecha_fin_real).split(' ')[0] if row.fecha_fin_real else ""
                 
-                dias_diff = (f_entrega - f_limite).days
-                
-                if dias_diff > 0:
-                    demora_txt = f"{dias_diff} {'día' if dias_diff == 1 else 'días'}"
-                elif dias_diff < 0:
-                    val_abs = abs(dias_diff)
-                    demora_txt = f"-{val_abs} {'día' if val_abs == 1 else 'días'}"
-                else:
-                    demora_txt = "mismo día"
+                if f_ini_str and f_fin_str:
+                    d_ini = d_fin = None
+                    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                        try:
+                            if not d_ini: d_ini = datetime.strptime(f_ini_str, fmt)
+                            if not d_fin: d_fin = datetime.strptime(f_fin_str, fmt)
+                        except: continue
+                    
+                    if d_ini and d_fin:
+                        diff = (d_fin - d_ini).days
+                        if diff > 0:
+                            txt_dias = f"{diff} {'día' if diff == 1 else 'días'}"
             except:
-                demora_txt = "Error"
+                txt_dias = "N/A"
+
+            try: wr = float(row.wr) if row.wr else 0.0
+            except: wr = 0.0
+            
+            valor_bote = 2.0 if wr >= 60 else 1.0
+            mi_neto_real = p_cli - p_boo - valor_bote
+            
+            t_staff += p_boo
+            t_neto += mi_neto_real
+            t_bote += valor_bote
+            t_ventas += p_cli
 
             reporte_data.append({
                 "#": i, 
-                "Inicio": format_fecha_latam(row.fecha_inicio), 
-                "Entrega": format_fecha_latam(row.fecha_fin_real),
-                "Demora": demora_txt,
-                "Staff": row.booster_nombre, 
-                "Neto": f"${format_precio(neto)}", 
-                "WR": f"{format_num(wr)}%"
+                "Staff": row.booster_nombre,
+                "Elo Final": row.elo_final,
+                "Días": txt_dias,
+                "Pago Staff": f"${p_boo:.2f}", 
+                "Mi Neto": f"${mi_neto_real:.2f}", 
+                "Bote": f"${valor_bote:.2f}", 
+                "Total Cli": f"${p_cli:.2f}"
             })
-        
+
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("📦 Pedidos", f"{conteo}")
-        m2.metric("💰 Mi Neto Total", f"${format_precio(t_neto)}")
-        m3.metric("🏦 Bote Total", f"${format_precio(t_bote)}")
+        m2.metric("💰 Mi Neto", f"${t_neto:.2f}")
+        m3.metric("🏦 Bote Ranking", f"${t_bote:.2f}")
+        m4.metric("📈 Ventas Totales", f"${t_ventas:.2f}")
 
-        gc, tc = st.columns([1, 2.8]) 
+        gc, tc = st.columns([1, 3]) 
         with gc:
-            fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], values=[t_staff, t_neto, t_bote], hole=.4)])
-            fig_pie.update_layout(template="plotly_dark", height=320, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], 
+                                            values=[t_staff, t_neto, t_bote], 
+                                            hole=.4,
+                                            marker_colors=['#3498db', '#2ecc71', '#f1c40f'])])
+            fig_pie.update_layout(template="plotly_dark", height=350, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig_pie, use_container_width=True)
             
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
-            st.dataframe(df_mostrar, height=320, use_container_width=True)
 
+            st.dataframe(df_mostrar, height=350, use_container_width=True)
+    else:
+        st.info("No hay registros terminados para los filtros seleccionados.")
+    
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
     df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
