@@ -26,7 +26,7 @@ AWS_CONF = {
     "host": "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com",
     "database": "postgres",
     "user": "postgres",
-    "password": "U.nz|X%n2y4&6",
+    "password": "Andres2406.",
     "port": "5432"
 }
 
