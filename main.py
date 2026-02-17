@@ -1,4 +1,5 @@
 import os
+import base64
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -165,10 +166,12 @@ class PerezBoostApp(ctk.CTk):
         if not sel: return
         
         val = self.tabla_pedidos.item(sel)['values']
-
-        id_pedido = val[0]  
+        id_pedido = str(val[0])
         cuenta = val[4]      
         fecha_raw = str(val[6])
+
+        token_raw = f"PB-{id_pedido}".encode('utf-8')
+        token_seguro = base64.urlsafe_b64encode(token_raw).decode('utf-8')
 
         fecha_bonita = fecha_raw
         try:
@@ -189,14 +192,14 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             print(f"Error formateando fecha: {e}")
 
-        URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
-
-        texto_final = f"{cuenta} - {fecha_bonita} - {URL_DASHBOARD}/?pedido={id_pedido}"
+        # URL con el token ofuscado
+        URL_DASHBOARD = "https://perezboost-manager.streamlit.app/"
+        texto_final = f"{cuenta} - {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
         
         self.clipboard_clear()
         self.clipboard_append(texto_final)
 
-        print(f"✅ Copiado: {texto_final}")
+        print(f"Copiado exitosamente con token de seguridad: {texto_final}")
 
     # =========================================================================
     # 2. SECCIÓN: DASHBOARD

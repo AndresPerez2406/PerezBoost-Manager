@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 import os
+import base64   
 from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
@@ -54,33 +55,43 @@ def run_query(query):
     return pd.DataFrame()
 
 # ==============================================================================
-# 2. ENRUTAMIENTO: MODO BOOSTER (Detectado por URL)
+# 2. ENRUTAMIENTO: MODO BOOSTER (Detección de Token)
 # ==============================================================================
 query_params = st.query_params
-if "pedido" in query_params:
-    id_pedido = query_params["pedido"]
+if "t" in query_params:
+    token_recibido = query_params["t"]
+    
+    try:
+        # Decodificamos el token inverso a la aplicación local
+        token_decodificado = base64.urlsafe_b64decode(token_recibido.encode('utf-8')).decode('utf-8')
+        id_pedido = token_decodificado.split("-")[1] # Extraemos el ID quitando el "PB-"
+    except Exception:
+        st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
+        st.stop()
+    
     df_info = run_query(f"SELECT booster_nombre, user_pass FROM pedidos WHERE id = {id_pedido}")
     
     if df_info.empty:
-        st.error("❌ Pedido no encontrado o ID inválido.")
+        st.error("Error: El pedido solicitado no existe en la base de datos.")
         st.stop()
         
     booster_asignado = df_info.iloc[0]['booster_nombre']
     user_pass_asignado = df_info.iloc[0]['user_pass']
     
-    st.title("🎮 Enlace de Cuenta")
-    st.info(f"**Asignado a:** {booster_asignado}")
-    st.write("**Credenciales asignadas:**")
+    st.title("Enlace de Cuenta Operativa")
+    st.info(f"Asignación confirmada para: **{booster_asignado}**")
+    
+    st.write("**Credenciales de acceso asignadas:**")
     st.code(user_pass_asignado, language="text")
     
     with st.form("form_booster"):
-        st.write("Por favor, ingresa el enlace directo del perfil OP.GG:")
-        opgg_input = st.text_input("🔗 Link OP.GG:", placeholder="https://www.op.gg/summoners/...")
-        submit = st.form_submit_button("Guardar Link")
+        st.write("Ingrese el enlace de telemetría del perfil (OP.GG, U.GG):")
+        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/...")
+        submit = st.form_submit_button("Registrar Enlace")
         
         if submit:
             if opgg_input.strip() == "" or not opgg_input.startswith("http"):
-                st.error("❌ Por favor ingresa un enlace válido (debe empezar con http:// o https://).")
+                st.error("Validación fallida: El registro debe ser una URL válida (http/https).")
             else:
                 conn = get_connection()
                 if conn:
@@ -88,13 +99,13 @@ if "pedido" in query_params:
                         with conn.cursor() as cur:
                             cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
                             conn.commit()
-                        st.success("✅ ¡Guardado exitosamente! Ya puedes cerrar esta ventana y empezar a jugar.")
+                        st.success("Registro completado exitosamente. Puede cerrar esta ventana.")
                     except Exception as e:
-                        st.error(f"Error al guardar: {e}")
+                        st.error(f"Excepción en la base de datos: {e}")
                     finally:
                         conn.close()
                 else:
-                    st.error("❌ Error de conexión a la base de datos.")
+                    st.error("Fallo de conexión con el servidor en la nube.")
     
     st.stop()
 # ==============================================================================
