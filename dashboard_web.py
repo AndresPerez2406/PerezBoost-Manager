@@ -16,9 +16,17 @@ st.set_page_config(page_title="PerezBoost | Portal Operativo", page_icon="🎮",
 st.markdown("""
 <style>
     .stApp { background-color: #0e1117; color: white; }
+    
+    /* BLOQUE PARA LIMPIAR LA INTERFAZ */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    button[title="View source"] {display: none;}
+    .viewerBadge_container__1QS1n {display: none;} /* El logo de 'Made with Streamlit' */
+
     div[data-testid="stMetricValue"] { font-size: 24px; color: #2ecc71; font-weight: bold; }
     
-    /* Centrar tablas nativas (Anomalías y Ranking) */
+    /* Centrar tablas nativas */
     [data-testid="stTable"] th, [data-testid="stTable"] td {
         text-align: center !important;
         vertical-align: middle !important;
