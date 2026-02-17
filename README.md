@@ -1,7 +1,6 @@
-
 # PerezBoost Manager V12.0 🛡️ (Fiscal Forensics Edition)
 
-**Enterprise-grade management suite** diseñada para servicios de Elo Boosting de alto rendimiento. Evolucionada hacia una  **Arquitectura Híbrida de Triple Capa** , que combina la potencia del procesamiento local con la accesibilidad global de la nube.
+**Enterprise-grade management suite** designed for high-performance Elo Boosting services. Evolved into a  **Triple-Tier Hybrid Architecture** , combining the power of local processing with global cloud accessibility.
 
 **Version:** 12.0 | **Architecture:** Hybrid (Local-First + Cloud Sync + Web Dashboard) | **Stack:** Python 3.10+, PostgreSQL (Supabase/AWS), Streamlit.
 
@@ -9,11 +8,12 @@
 
 ## 🚀 What's New in V12.0 (Fiscal Forensics)
 
-* **🛡️ Auditoría Operativa (Fiscal Forensics):** Motor de detección de anomalías en tiempo real que identifica pedidos con Win Rate crítico (<50%) y retrasos en las fechas de entrega (Alertas Rojas/Amarillas).
-* **📦 Mobile Dispatch (Inventario):** Tabla de stock optimizada para smartphones con función de copiado rápido de credenciales (`user:pass`), permitiendo el despacho de cuentas sin necesidad de acceder a la PC.
-* **🏆 Monthly Staff Efficiency:** Ranking dinámico que calcula el **Efficiency Score** (`WinRate / Días Promedio`) para identificar a los mejores boosters del mes en curso.
-* **📱 UI/UX Refactor:** Migración de scroll vertical a  **Navegación por Pestañas Horizontales** , mejorando drásticamente la experiencia de usuario en dispositivos móviles.
-* **📊 Data Integrity Engine:** Implementación de formateo de precisión para reportes financieros y ordenamiento cronológico ascendente de las operaciones mensuales.
+* **🛡️ Operational Audit (Fiscal Forensics):** Real-time anomaly detection engine that identifies orders with critical Win Rates (<50%) and delivery delays (Red/Yellow Alerts).
+* **📦 Mobile Dispatch (Inventory):** Smartphone-optimized stock table with a quick-copy feature for credentials (`user:pass`), allowing account dispatching without needing PC access.
+* **🏆 Monthly Staff Efficiency:** Dynamic ranking that calculates the **Efficiency Score** to identify the best-performing boosters of the current month.
+* **📱 UI/UX Refactor:** Migration from vertical scrolling to  **Horizontal Tab Navigation** , drastically improving the user experience on mobile devices.
+* **📊 Data Integrity Engine:** Implementation of precision formatting for financial reports and ascending chronological sorting of monthly operations.
+* **🕵️‍♂️ Stealth Dispatch & Tracking:** Obfuscated web routing system (Base64 Tokenization) for the secure assignment of accounts to boosters, integrating a CRUD link management panel (OP.GG) with protection against *Insecure Direct Object Reference* (IDOR) and *Open Graph* customization for enhanced discretion.
 
 ---
 

@@ -46,7 +46,7 @@ class PerezBoostApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         inicializar_db()
-        version = "V11.0"
+        version = "V12.0"
 
         try:
             from core.cloud_sync import MODO_DESARROLLO
@@ -164,14 +164,19 @@ class PerezBoostApp(ctk.CTk):
         if not self.tabla_pedidos: return
         sel = self.tabla_pedidos.selection()
         if not sel: return
-        
-        val = self.tabla_pedidos.item(sel)['values']
-        id_pedido = str(val[0])
-        cuenta = val[4]      
+
+        item_id = sel[0]
+        val = self.tabla_pedidos.item(item_id)['values']
+
+        id_pedido = str(val[1]) 
+        cuenta = val[4] 
         fecha_raw = str(val[6])
 
+        # --- 🔒 LÓGICA DE TOKENIZACIÓN (NUEVA) ---
+        # Convertimos el ID (ej. 45) en "PB-45" y luego lo encriptamos
         token_raw = f"PB-{id_pedido}".encode('utf-8')
         token_seguro = base64.urlsafe_b64encode(token_raw).decode('utf-8')
+        # -----------------------------------------
 
         fecha_bonita = fecha_raw
         try:
@@ -192,15 +197,17 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             print(f"Error formateando fecha: {e}")
 
-        # URL con el token ofuscado
-        URL_DASHBOARD = "https://perezboost-manager.streamlit.app/"
-        texto_final = f"{cuenta} - {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
-        
+        URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
+
+        # 👉 CAMBIAMOS ?pedido= POR ?t= Y USAMOS EL TOKEN ENCRIPTADO
+        texto_final = f"{cuenta} - Límite: {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
+
         self.clipboard_clear()
         self.clipboard_append(texto_final)
+        self.update() 
 
-        print(f"Copiado exitosamente con token de seguridad: {texto_final}")
-
+        print(f"✅ Copiado exitoso: {texto_final}")
+        
     # =========================================================================
     # 2. SECCIÓN: DASHBOARD
     # =========================================================================

@@ -5,7 +5,6 @@ import os
 import threading
 import time
 from dotenv import load_dotenv
-
 import os
 from dotenv import load_dotenv
 
@@ -68,7 +67,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50), 
                 pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION, 
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0, 
-                ajuste_motivo TEXT, pago_realizado INTEGER DEFAULT 0
+                ajuste_motivo TEXT, pago_realizado INTEGER DEFAULT 0,
+                opgg TEXT
             );
         """)
         conn_cloud.commit()

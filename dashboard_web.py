@@ -8,8 +8,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from pathlib import Path
+import warnings
 
-st.set_page_config(page_title="PerezBoost | Owner's Eye", page_icon="🚀", layout="wide")
+warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
+st.set_page_config(page_title="PerezBoost | Portal Operativo", page_icon="🎮", layout="wide")
 
 st.markdown("""
 <style>
@@ -62,9 +64,8 @@ if "t" in query_params:
     token_recibido = query_params["t"]
     
     try:
-        # Decodificamos el token inverso a la aplicación local
         token_decodificado = base64.urlsafe_b64decode(token_recibido.encode('utf-8')).decode('utf-8')
-        id_pedido = token_decodificado.split("-")[1] # Extraemos el ID quitando el "PB-"
+        id_pedido = token_decodificado.split("-")[1]
     except Exception:
         st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
         st.stop()
@@ -108,6 +109,7 @@ if "t" in query_params:
                     st.error("Fallo de conexión con el servidor en la nube.")
     
     st.stop()
+    
 # ==============================================================================
 # 3. AUTENTICACIÓN ADMIN (Tu login normal)
 # ==============================================================================
@@ -123,10 +125,12 @@ def verificar_login():
 if not st.session_state.authenticated:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        st.title("🔒 PerezBoost Cloud")
+        st.write("")
+        st.write("")
+        st.subheader("PerezBoost System Access") 
         with st.form("login"):
-            st.text_input("Contraseña:", type="password", key="pass_input")
-            st.form_submit_button("Entrar", on_click=verificar_login)
+            st.text_input("Access Token:", type="password", key="pass_input")
+            st.form_submit_button("Verificar", on_click=verificar_login)
     st.stop()
 
 # ==============================================================================
@@ -357,6 +361,7 @@ with tab_ranking:
 # ==============================================================================
 # TAB 4: TRACKING (OP.GG y Cuentas Activas)
 # ==============================================================================
+
 with tab_tracking:
     c1, c2 = st.columns([8, 1])
     with c1:

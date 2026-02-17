@@ -2,11 +2,11 @@ import requests
 from datetime import datetime
 import threading
 
-COLOR_SUCCESS = 5763719   # Verde
-COLOR_INFO = 3447003      # Azul
-COLOR_WARNING = 16776960  # Amarillo
-COLOR_DANGER = 15158332   # Rojo
-version = "V11.5"
+COLOR_SUCCESS = 5763719   
+COLOR_INFO = 3447003      
+COLOR_WARNING = 16776960  
+COLOR_DANGER = 15158332   
+version = "V12"
 class DiscordNotifier:
     def __init__(self, webhook_url):
         self.webhook_url = webhook_url
