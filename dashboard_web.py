@@ -168,7 +168,7 @@ with h_col2:
 tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])
 
 # ==============================================================================
-# TAB 1: REPORTES (ACTUALIZADO CON FECHA DE ENTREGA)
+# TAB 1: REPORTES
 # ==============================================================================
 
 with tab_reportes:
@@ -202,30 +202,28 @@ with tab_reportes:
         for i, row in enumerate(df_rep.itertuples(), 1):
             conteo += 1
             p_cli, p_boo, wr = clean_num(row.pago_cliente), clean_num(row.pago_booster), clean_num(row.wr)
-            
             bote = 2.0 if wr >= 60 else 1.0
             neto = p_cli - p_boo - bote
             
             t_staff += p_boo
             t_neto += neto
             t_bote += bote
-            
-            demora_txt = "N/A"
+
+            demora_txt = ""
             try:
                 if row.fecha_fin_real and row.fecha_limite:
-
                     f_entrega = pd.to_datetime(row.fecha_fin_real).date()
                     f_limite = pd.to_datetime(row.fecha_limite).date()
                     dias_diff = (f_entrega - f_limite).days
                     
                     if dias_diff > 0:
-                        demora_txt = f"⚠️ +{dias_diff} d"
-                    elif dias_diff == 0:
-                        demora_txt = "✅ A tiempo"
+                        demora_txt = f"{dias_diff} días"
+                    elif dias_diff < 0:
+                        demora_txt = f"-{abs(dias_diff)} día"
                     else:
-                        demora_txt = f"🚀 {abs(dias_diff)} d antes"
+                        demora_txt = "mismo día"
             except:
-                demora_txt = "Error Formato"
+                demora_txt = "N/A"
 
             reporte_data.append({
                 "#": i, 
@@ -236,7 +234,7 @@ with tab_reportes:
                 "Neto": f"${format_precio(neto)}", 
                 "WR": f"{format_num(wr)}%"
             })
-
+        
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -246,7 +244,7 @@ with tab_reportes:
         m2.metric("💰 Mi Neto Total", f"${format_precio(t_neto)}")
         m3.metric("🏦 Bote Total", f"${format_precio(t_bote)}")
 
-        gc, tc = st.columns([1, 3])
+        gc, tc = st.columns([1, 2.8]) 
         with gc:
             fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], values=[t_staff, t_neto, t_bote], hole=.4)])
             fig_pie.update_layout(template="plotly_dark", height=320, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
@@ -255,13 +253,9 @@ with tab_reportes:
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
-
-            df_styled = df_mostrar.style.set_properties(**{'text-align': 'center'})
-            df_styled = df_styled.set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            
-            st.dataframe(df_styled, height=320, use_container_width=True)
+            st.dataframe(df_mostrar, height=320, use_container_width=True)
     else:
-        st.info("No se encontraron pedidos terminados con los filtros seleccionados.")
+        st.info("No hay datos para mostrar.")
     
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
