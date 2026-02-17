@@ -165,6 +165,8 @@ class PerezBoostApp(ctk.CTk):
         if not sel: return
         
         val = self.tabla_pedidos.item(sel)['values']
+
+        id_pedido = val[0]  
         cuenta = val[4]      
         fecha_raw = str(val[6])
 
@@ -187,13 +189,15 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             print(f"Error formateando fecha: {e}")
 
-        texto_final = f"{cuenta} - {fecha_bonita}"
+        URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
+
+        texto_final = f"{cuenta} - {fecha_bonita} - {URL_DASHBOARD}/?pedido={id_pedido}"
         
         self.clipboard_clear()
         self.clipboard_append(texto_final)
 
         print(f"✅ Copiado: {texto_final}")
-        
+
     # =========================================================================
     # 2. SECCIÓN: DASHBOARD
     # =========================================================================

@@ -33,6 +33,74 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ==============================================================================
+# 1. CONEXIÓN A LA BASE DE DATOS (Movido arriba para el Booster)
+# ==============================================================================
+
+load_dotenv(override=True)
+
+def get_connection():
+    url = os.getenv("DATABASE_URL")
+    try: return psycopg2.connect(url, connect_timeout=10)
+    except: return None
+
+def run_query(query):
+    conn = get_connection()
+    if conn:
+        try:
+            with conn: return pd.read_sql(query, conn)
+        except: return pd.DataFrame()
+        finally: conn.close()
+    return pd.DataFrame()
+
+# ==============================================================================
+# 2. ENRUTAMIENTO: MODO BOOSTER (Detectado por URL)
+# ==============================================================================
+query_params = st.query_params
+if "pedido" in query_params:
+    id_pedido = query_params["pedido"]
+    df_info = run_query(f"SELECT booster_nombre, user_pass FROM pedidos WHERE id = {id_pedido}")
+    
+    if df_info.empty:
+        st.error("❌ Pedido no encontrado o ID inválido.")
+        st.stop()
+        
+    booster_asignado = df_info.iloc[0]['booster_nombre']
+    user_pass_asignado = df_info.iloc[0]['user_pass']
+    
+    st.title("🎮 Enlace de Cuenta")
+    st.info(f"**Asignado a:** {booster_asignado}")
+    st.write("**Credenciales asignadas:**")
+    st.code(user_pass_asignado, language="text")
+    
+    with st.form("form_booster"):
+        st.write("Por favor, ingresa el enlace directo del perfil OP.GG:")
+        opgg_input = st.text_input("🔗 Link OP.GG:", placeholder="https://www.op.gg/summoners/...")
+        submit = st.form_submit_button("Guardar Link")
+        
+        if submit:
+            if opgg_input.strip() == "" or not opgg_input.startswith("http"):
+                st.error("❌ Por favor ingresa un enlace válido (debe empezar con http:// o https://).")
+            else:
+                conn = get_connection()
+                if conn:
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
+                            conn.commit()
+                        st.success("✅ ¡Guardado exitosamente! Ya puedes cerrar esta ventana y empezar a jugar.")
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+                    finally:
+                        conn.close()
+                else:
+                    st.error("❌ Error de conexión a la base de datos.")
+    
+    st.stop()
+# ==============================================================================
+# 3. AUTENTICACIÓN ADMIN (Tu login normal)
+# ==============================================================================
+
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
 def verificar_login():
@@ -50,21 +118,9 @@ if not st.session_state.authenticated:
             st.form_submit_button("Entrar", on_click=verificar_login)
     st.stop()
 
-load_dotenv(override=True)
-
-def get_connection():
-    url = os.getenv("DATABASE_URL")
-    try: return psycopg2.connect(url, connect_timeout=10)
-    except: return None
-
-def run_query(query):
-    conn = get_connection()
-    if conn:
-        try:
-            with conn: return pd.read_sql(query, conn)
-        except: return pd.DataFrame()
-        finally: conn.close()
-    return pd.DataFrame()
+# ==============================================================================
+# 4. FUNCIONES FORMATEADORAS
+# ==============================================================================
 
 def clean_num(val):
     if val is None or pd.isna(val) or str(val).strip() == "": return 0.0
@@ -94,7 +150,7 @@ with h_col2:
         st.session_state.authenticated = False
         st.rerun()
 
-tab_reportes, tab_inventario, tab_ranking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF"])
+tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])
 
 # ==============================================================================
 # TAB 1: REPORTES
@@ -207,6 +263,7 @@ with tab_reportes:
 # ==============================================================================
 # TAB 2: INVENTARIO
 # ==============================================================================
+
 with tab_inventario:
     st.subheader("📦 Cuentas Disponibles")
     df_inv = run_query("SELECT id, user_pass, elo_tipo, descripcion FROM inventario WHERE descripcion NOT ILIKE '%VENDIDA%' AND descripcion NOT ILIKE '%USADA%' AND descripcion NOT ILIKE '%OCUPADA%'")
@@ -285,3 +342,83 @@ with tab_ranking:
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("Sin datos este mes.")
+        
+# ==============================================================================
+# TAB 4: TRACKING (OP.GG y Cuentas Activas)
+# ==============================================================================
+with tab_tracking:
+    c1, c2 = st.columns([8, 1])
+    with c1:
+        st.subheader("🔍 Tracking Operativo")
+    with c2:
+        if st.button("🔄 Refrescar", key="btn_refresh_track"): st.rerun()
+        
+    st.info("💡 Monitorea las cuentas activas y edita los enlaces si el staff cometió un error.")
+    
+    query_activos = "SELECT id, booster_nombre, user_pass, opgg, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado') ORDER BY id DESC"
+    df_activos = run_query(query_activos)
+    
+    if df_activos.empty:
+        st.success("✅ No hay pedidos activos en este momento.")
+    else:
+        tracking_data = []
+        lista_ids_activos = []
+        
+        for i, row in enumerate(df_activos.itertuples(), 1):
+            link_val = row.opgg if pd.notna(row.opgg) and str(row.opgg).strip() != "" else None
+            lista_ids_activos.append(row.id)
+            
+            tracking_data.append({
+                "#": i,
+                "Pedido": f"#{row.id}",
+                "Staff": row.booster_nombre,
+                "Cuenta (User:Pass)": row.user_pass,
+                "Link OP.GG": link_val,
+                "Estado": row.estado
+            })
+            
+        df_track = pd.DataFrame(tracking_data)
+        df_track.set_index("#", inplace=True)
+
+        st.dataframe(
+            df_track, 
+            use_container_width=True, 
+            column_config={
+                "Link OP.GG": st.column_config.LinkColumn(
+                    "Link OP.GG", 
+                    help="Haz clic para abrir el perfil",
+                    display_text="🔗 Abrir Perfil"
+                )
+            }
+        )
+
+        st.divider()
+
+        st.subheader("🛠️ Gestión de Enlaces (Corrección de Errores)")
+        st.write("Selecciona el pedido para corregir el link. **Para eliminarlo, simplemente deja la caja en blanco y guarda.**")
+        
+        with st.form("form_editar_opgg"):
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                pedido_sel = st.selectbox("ID del Pedido:", options=lista_ids_activos)
+            with col2:
+                nuevo_link = st.text_input("Nuevo Link OP.GG:", placeholder="https://...")
+            
+            submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace")
+            
+            if submit_edit:
+                conn = get_connection()
+                if conn:
+                    try:
+                        link_final = nuevo_link.strip() if nuevo_link.strip() != "" else None
+                        
+                        with conn.cursor() as cur:
+                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (link_final, pedido_sel))
+                            conn.commit()
+                        st.success(f"✅ ¡Operación exitosa en el Pedido #{pedido_sel}! Haz clic en '🔄 Refrescar' arriba para ver los cambios.")
+                    except Exception as e:
+                        st.error(f"❌ Error al actualizar la base de datos: {e}")
+                    finally:
+                        conn.close()
+                else:
+                    st.error("❌ Error de conexión a la nube.") 
