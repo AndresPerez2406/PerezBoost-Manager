@@ -23,12 +23,14 @@ load_dotenv()
 SUPABASE_URL = os.getenv("DATABASE_URL")
 
 AWS_CONF = {
-    "host": "perezboost-db.cfyakym2046h.us-east-2.rds.amazonaws.com",
-    "database": "postgres",
-    "user": "postgres",
-    "password": "Andres2406.",
-    "port": "5432"
+    "host": os.getenv("AWS_HOST"),
+    "database": os.getenv("AWS_DB", "postgres"),
+    "user": os.getenv("AWS_USER", "postgres"),
+    "password": os.getenv("AWS_PASSWORD"),
+    "port": os.getenv("AWS_PORT", "5432")
 }
+
+CLOUD_URL = os.getenv("DATABASE_URL_CLOUD")
 
 DB_LOCAL = "perezboost.db"
 
