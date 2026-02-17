@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 import os
-import base64   
+import base64
 from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
@@ -37,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. CONEXIÓN A LA BASE DE DATOS (Movido arriba para el Booster)
+# 1. CONEXIÓN A LA BASE DE DATOS
 # ==============================================================================
 
 load_dotenv(override=True)
@@ -57,7 +57,7 @@ def run_query(query):
     return pd.DataFrame()
 
 # ==============================================================================
-# 2. ENRUTAMIENTO: MODO BOOSTER (Detección de Token)
+# 2. ENRUTAMIENTO: MODO BOOSTER
 # ==============================================================================
 query_params = st.query_params
 if "t" in query_params:
@@ -111,7 +111,7 @@ if "t" in query_params:
     st.stop()
     
 # ==============================================================================
-# 3. AUTENTICACIÓN ADMIN (Tu login normal)
+# 3. AUTENTICACIÓN ADMIN
 # ==============================================================================
 
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -168,9 +168,8 @@ with h_col2:
 tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])
 
 # ==============================================================================
-# TAB 1: REPORTES
+# TAB 1: REPORTES (ACTUALIZADO CON FECHA DE ENTREGA)
 # ==============================================================================
-
 with tab_reportes:
     f1, f2, f3 = st.columns([2, 2, 1])
     meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -204,12 +203,14 @@ with tab_reportes:
             
             reporte_data.append({
                 "#": i, 
-                "Fecha": format_fecha_latam(row.fecha_inicio), 
+                "Inicio": format_fecha_latam(row.fecha_inicio), 
+                "Entrega": format_fecha_latam(row.fecha_fin_real), # <-- AGREGADO
                 "Staff": row.booster_nombre, 
                 "Neto": f"${format_precio(neto)}", 
                 "WR": f"{format_num(wr)}%"
             })
         
+        # Ajuste de bonos manuales (si aplica)
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -219,7 +220,7 @@ with tab_reportes:
         m2.metric("💰 Mi Neto Total", f"${format_precio(t_neto)}")
         m3.metric("🏦 Bote Total", f"${format_precio(t_bote)}")
 
-        gc, tc = st.columns([1, 2])
+        gc, tc = st.columns([1, 2.5]) # Ajustamos el ancho para la nueva columna
         with gc:
             fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], values=[t_staff, t_neto, t_bote], hole=.4)])
             fig_pie.update_layout(template="plotly_dark", height=280, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
