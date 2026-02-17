@@ -172,11 +172,8 @@ class PerezBoostApp(ctk.CTk):
         cuenta = val[4] 
         fecha_raw = str(val[6])
 
-        # --- 🔒 LÓGICA DE TOKENIZACIÓN (NUEVA) ---
-        # Convertimos el ID (ej. 45) en "PB-45" y luego lo encriptamos
         token_raw = f"PB-{id_pedido}".encode('utf-8')
         token_seguro = base64.urlsafe_b64encode(token_raw).decode('utf-8')
-        # -----------------------------------------
 
         fecha_bonita = fecha_raw
         try:
@@ -198,8 +195,6 @@ class PerezBoostApp(ctk.CTk):
             print(f"Error formateando fecha: {e}")
 
         URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
-
-        # 👉 CAMBIAMOS ?pedido= POR ?t= Y USAMOS EL TOKEN ENCRIPTADO
         texto_final = f"{cuenta} - Límite: {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
 
         self.clipboard_clear()

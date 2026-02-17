@@ -184,15 +184,12 @@ with tab_reportes:
         if st.button("🔄 Refrescar"): st.rerun()
 
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
-    
     if mes_sel != "Todos":
         query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{str(meses_nombres.index(mes_sel)).zfill(2)}%'"
-    
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
     query_base += " ORDER BY fecha_inicio ASC"
-    
     df_rep = run_query(query_base)
     
     if not df_rep.empty:
@@ -204,29 +201,27 @@ with tab_reportes:
             p_cli, p_boo, wr = clean_num(row.pago_cliente), clean_num(row.pago_booster), clean_num(row.wr)
             bote = 2.0 if wr >= 60 else 1.0
             neto = p_cli - p_boo - bote
+            t_staff += p_boo; t_neto += neto; t_bote += bote
             
-            t_staff += p_boo
-            t_neto += neto
-            t_bote += bote
-
+            # --- MOTOR DE CÁLCULO DE DÍAS (BLINDADO) ---
             demora_txt = ""
             try:
-                if row.fecha_fin_real and row.fecha_limite:
-                    f_entrega = pd.to_datetime(row.fecha_fin_real).date()
-                    f_limite = pd.to_datetime(row.fecha_limite).date()
-                    dias_diff = (f_entrega - f_limite).days
-                    
-                    if dias_diff > 0:
-                        label = "día" if dias_diff == 1 else "días"
-                        demora_txt = f"{dias_diff} {label}"
-                    elif dias_diff < 0:
-                        val_abs = abs(dias_diff)
-                        label = "día" if val_abs == 1 else "días"
-                        demora_txt = f"{val_abs} {label}"
-                    else:
-                        demora_txt = "mismo día"
+                # Extraemos solo la parte de la fecha (YYYY-MM-DD) ignorando horas si existen
+                # Usamos dayfirst=True por si acaso el staff mete fechas manuales
+                f_entrega = pd.to_datetime(row.fecha_fin_real, dayfirst=True).date()
+                f_limite = pd.to_datetime(row.fecha_limite, dayfirst=True).date()
+                
+                dias_diff = (f_entrega - f_limite).days
+                
+                if dias_diff > 0:
+                    demora_txt = f"{dias_diff} {'día' if dias_diff == 1 else 'días'}"
+                elif dias_diff < 0:
+                    val_abs = abs(dias_diff)
+                    demora_txt = f"-{val_abs} {'día' if val_abs == 1 else 'días'}"
+                else:
+                    demora_txt = "mismo día"
             except:
-                demora_txt = "N/A"
+                demora_txt = "Error"
 
             reporte_data.append({
                 "#": i, 
@@ -257,9 +252,7 @@ with tab_reportes:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
             st.dataframe(df_mostrar, height=320, use_container_width=True)
-    else:
-        st.info("No hay datos para mostrar.")
-    
+
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
     df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
