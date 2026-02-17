@@ -64,6 +64,7 @@ def run_query(query):
 # ==============================================================================
 # 2. ENRUTAMIENTO: MODO BOOSTER
 # ==============================================================================
+
 query_params = st.query_params
 if "t" in query_params:
     token_recibido = query_params["t"]
@@ -91,7 +92,7 @@ if "t" in query_params:
     st.code(user_pass_asignado, language="text")
     
     with st.form("form_booster"):
-        st.write("Ingrese el enlace de telemetría del perfil (OP.GG, U.GG):")
+        st.write("Ingrese el enlace de telemetría del perfil (OP.GG):")
         opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/...")
         submit = st.form_submit_button("Registrar Enlace")
         
@@ -132,7 +133,7 @@ if not st.session_state.authenticated:
     with c2:
         st.write("")
         st.write("")
-        st.subheader("PerezBoost System Access") 
+        st.subheader("PerezBoost System Access")
         with st.form("login"):
             st.text_input("Access Token:", type="password", key="pass_input")
             st.form_submit_button("Verificar", on_click=verificar_login)
@@ -166,7 +167,7 @@ h_col1, h_col2 = st.columns([8, 1])
 with h_col1:
     st.title("🚀 PerezBoost | Monitor")
 with h_col2:
-    if st.button("Salir"):
+    if st.button("Cerrar Sesión", key="btn_logout"):
         st.session_state.authenticated = False
         st.rerun()
 
