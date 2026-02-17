@@ -170,10 +170,12 @@ tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTE
 # ==============================================================================
 # TAB 1: REPORTES (ACTUALIZADO CON FECHA DE ENTREGA)
 # ==============================================================================
+
 with tab_reportes:
     f1, f2, f3 = st.columns([2, 2, 1])
     meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    with f1: mes_sel = st.selectbox("📅 Mes", meses_nombres)
+    with f1: 
+        mes_sel = st.selectbox("📅 Mes", meses_nombres)
     with f2: 
         df_boosters = run_query("SELECT DISTINCT booster_nombre FROM pedidos")
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
@@ -182,8 +184,10 @@ with tab_reportes:
         if st.button("🔄 Refrescar"): st.rerun()
 
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
+    
     if mes_sel != "Todos":
         query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{str(meses_nombres.index(mes_sel)).zfill(2)}%'"
+    
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
@@ -194,23 +198,45 @@ with tab_reportes:
     if not df_rep.empty:
         t_staff, t_neto, t_bote, conteo = 0.0, 0.0, 0.0, 0
         reporte_data = []
+        
         for i, row in enumerate(df_rep.itertuples(), 1):
             conteo += 1
             p_cli, p_boo, wr = clean_num(row.pago_cliente), clean_num(row.pago_booster), clean_num(row.wr)
+            
             bote = 2.0 if wr >= 60 else 1.0
             neto = p_cli - p_boo - bote
-            t_staff += p_boo; t_neto += neto; t_bote += bote
             
+            t_staff += p_boo
+            t_neto += neto
+            t_bote += bote
+            
+            demora_txt = "N/A"
+            try:
+                if row.fecha_fin_real and row.fecha_limite:
+
+                    f_entrega = pd.to_datetime(row.fecha_fin_real).date()
+                    f_limite = pd.to_datetime(row.fecha_limite).date()
+                    dias_diff = (f_entrega - f_limite).days
+                    
+                    if dias_diff > 0:
+                        demora_txt = f"⚠️ +{dias_diff} d"
+                    elif dias_diff == 0:
+                        demora_txt = "✅ A tiempo"
+                    else:
+                        demora_txt = f"🚀 {abs(dias_diff)} d antes"
+            except:
+                demora_txt = "Error Formato"
+
             reporte_data.append({
                 "#": i, 
                 "Inicio": format_fecha_latam(row.fecha_inicio), 
-                "Entrega": format_fecha_latam(row.fecha_fin_real), # <-- AGREGADO
+                "Entrega": format_fecha_latam(row.fecha_fin_real),
+                "Demora": demora_txt,
                 "Staff": row.booster_nombre, 
                 "Neto": f"${format_precio(neto)}", 
                 "WR": f"{format_num(wr)}%"
             })
-        
-        # Ajuste de bonos manuales (si aplica)
+
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -220,18 +246,22 @@ with tab_reportes:
         m2.metric("💰 Mi Neto Total", f"${format_precio(t_neto)}")
         m3.metric("🏦 Bote Total", f"${format_precio(t_bote)}")
 
-        gc, tc = st.columns([1, 2.5]) # Ajustamos el ancho para la nueva columna
+        gc, tc = st.columns([1, 3])
         with gc:
             fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], values=[t_staff, t_neto, t_bote], hole=.4)])
-            fig_pie.update_layout(template="plotly_dark", height=280, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_pie.update_layout(template="plotly_dark", height=320, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig_pie, use_container_width=True)
+            
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
 
             df_styled = df_mostrar.style.set_properties(**{'text-align': 'center'})
             df_styled = df_styled.set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            st.dataframe(df_styled, height=280, use_container_width=True)
+            
+            st.dataframe(df_styled, height=320, use_container_width=True)
+    else:
+        st.info("No se encontraron pedidos terminados con los filtros seleccionados.")
     
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
