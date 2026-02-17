@@ -184,15 +184,12 @@ with tab_reportes:
         if st.button("🔄 Refrescar"): st.rerun()
 
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
-    
     if mes_sel != "Todos":
         query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{str(meses_nombres.index(mes_sel)).zfill(2)}%'"
-    
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
     query_base += " ORDER BY fecha_inicio ASC"
-    
     df_rep = run_query(query_base)
     
     if not df_rep.empty:
@@ -227,7 +224,6 @@ with tab_reportes:
 
             try: wr = float(row.wr) if row.wr else 0.0
             except: wr = 0.0
-            
             valor_bote = 2.0 if wr >= 60 else 1.0
             mi_neto_real = p_cli - p_boo - valor_bote
             
@@ -238,15 +234,16 @@ with tab_reportes:
 
             reporte_data.append({
                 "#": i, 
+                "Inicio": format_fecha_latam(row.fecha_inicio),
+                "Entrega": format_fecha_latam(row.fecha_fin_real),
+                "Días": txt_dias,
                 "Staff": row.booster_nombre,
                 "Elo Final": row.elo_final,
-                "Días": txt_dias,
-                "Pago Staff": f"${p_boo:.2f}", 
                 "Mi Neto": f"${mi_neto_real:.2f}", 
                 "Bote": f"${valor_bote:.2f}", 
-                "Total Cli": f"${p_cli:.2f}"
+                "Total": f"${p_cli:.2f}"
             })
-
+        
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -257,23 +254,20 @@ with tab_reportes:
         m3.metric("🏦 Bote Ranking", f"${t_bote:.2f}")
         m4.metric("📈 Ventas Totales", f"${t_ventas:.2f}")
 
-        gc, tc = st.columns([1, 3]) 
+        gc, tc = st.columns([1, 4]) 
         with gc:
             fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], 
                                             values=[t_staff, t_neto, t_bote], 
                                             hole=.4,
                                             marker_colors=['#3498db', '#2ecc71', '#f1c40f'])])
-            fig_pie.update_layout(template="plotly_dark", height=350, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_pie.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig_pie, use_container_width=True)
             
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
+            st.dataframe(df_mostrar, height=380, use_container_width=True)
 
-            st.dataframe(df_mostrar, height=350, use_container_width=True)
-    else:
-        st.info("No hay registros terminados para los filtros seleccionados.")
-    
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
     df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
