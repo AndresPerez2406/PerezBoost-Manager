@@ -217,9 +217,12 @@ with tab_reportes:
                     dias_diff = (f_entrega - f_limite).days
                     
                     if dias_diff > 0:
-                        demora_txt = f"{dias_diff} días"
+                        label = "día" if dias_diff == 1 else "días"
+                        demora_txt = f"{dias_diff} {label}"
                     elif dias_diff < 0:
-                        demora_txt = f"-{abs(dias_diff)} día"
+                        val_abs = abs(dias_diff)
+                        label = "día" if val_abs == 1 else "días"
+                        demora_txt = f"{val_abs} {label}"
                     else:
                         demora_txt = "mismo día"
             except:
