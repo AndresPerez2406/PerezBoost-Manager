@@ -8,7 +8,7 @@ import customtkinter as ctk
 import pandas as pd
 import threading
 import matplotlib
-matplotlib.use("TkAgg") 
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from core.discord_handler import DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
