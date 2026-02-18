@@ -124,13 +124,11 @@ if "t" in query_params:
 # ==============================================================================
 
 cookie_manager = stx.CookieManager(key="perez_auth_manager")
-
 cookie_auth = None
 try:
     cookie_auth = cookie_manager.get(cookie="perez_login_token")
 except:
     pass
-
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if cookie_auth == "SESION_VALIDA_PEREZBOOST":
@@ -146,7 +144,7 @@ if not st.session_state.authenticated:
             
             with st.form("login_form"):
                 password = st.text_input("Credencial de Acceso:", type="password")
-                mantener = st.checkbox("No cerrar sesión (30 min)", value=True)
+                mantener = st.checkbox("No cerrar sesión.", value=True)
                 submit = st.form_submit_button("Ingresar")
                 
                 if submit:
@@ -165,11 +163,8 @@ if not st.session_state.authenticated:
                         if mantener:
                             expira = datetime.now() + timedelta(minutes=30)
                             cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
-                        
                         st.success("✅ Acceso Correcto")
-
-                        login_placeholder.empty() 
-                        
+                        login_placeholder.empty()
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -223,18 +218,19 @@ tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTE
 with tab_reportes:
     f1, f2, f3 = st.columns([2, 2, 1])
     meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    with f1: 
-        mes_sel = st.selectbox("📅 Mes", meses_nombres)
+    mes_actual_idx = datetime.now().month
+    with f1:
+        mes_sel = st.selectbox("📅 Mes", meses_nombres, index=mes_actual_idx)
     with f2: 
         df_boosters = run_query("SELECT DISTINCT booster_nombre FROM pedidos")
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
     with f3:
         st.write("")
         if st.button("🔄 Refrescar"): st.rerun()
-
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
     if mes_sel != "Todos":
-        query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{str(meses_nombres.index(mes_sel)).zfill(2)}%'"
+        n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
+        query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
@@ -288,22 +284,24 @@ with tab_reportes:
                 "Días": txt_dias,
                 "Staff": row.booster_nombre,
                 "Elo Final": row.elo_final,
+                "Pago Staff": f"${p_boo:.2f}",
                 "Mi Neto": f"${mi_neto_real:.2f}", 
                 "Bote": f"${valor_bote:.2f}", 
                 "Total": f"${p_cli:.2f}"
             })
-        
+
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
 
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📦 Pedidos", f"{conteo}")
         m2.metric("💰 Mi Neto", f"${t_neto:.2f}")
-        m3.metric("🏦 Bote Ranking", f"${t_bote:.2f}")
-        m4.metric("📈 Ventas Totales", f"${t_ventas:.2f}")
+        m3.metric("👤 Pago Staff", f"${t_staff:.2f}")
+        m4.metric("🏦 Bote Ranking", f"${t_bote:.2f}")
+        m5.metric("📈 Ventas Totales", f"${t_ventas:.2f}")
 
-        gc, tc = st.columns([1, 4]) 
+        gc, tc = st.columns([1, 4])
         with gc:
             fig_pie = go.Figure(data=[go.Pie(labels=['Staff', 'Neto', 'Bote'], 
                                             values=[t_staff, t_neto, t_bote], 
