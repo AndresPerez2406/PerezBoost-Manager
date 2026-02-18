@@ -9,6 +9,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 from pathlib import Path
 import warnings
+import extra_streamlit_components as stx
+import datetime
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 st.set_page_config(page_title="PerezBoost | Portal Operativo", page_icon="🎮", layout="wide")
@@ -117,39 +119,41 @@ if "t" in query_params:
     st.stop()
     
 # ==============================================================================
-# 3. AUTENTICACIÓN ADMIN (CON PERSISTENCIA DE CACHÉ)
+# 3. AUTENTICACIÓN ADMIN (CON COOKIES REALES)
 # ==============================================================================
 
-# Esta función recordará que la clave es correcta por 24 horas (86400 segundos)
-@st.cache_data(ttl=300)
-def validar_password_cache(pwd_ingresado):
-    return pwd_ingresado == st.secrets["ADMIN_PASSWORD"]
+cookie_manager = stx.CookieManager()
+cookie_auth = cookie_manager.get(cookie="perez_auth")
 
 if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-
-    if "ultima_clave" in st.session_state:
-        if validar_password_cache(st.session_state.ultima_clave):
-            st.session_state.authenticated = True
+    if cookie_auth == "verificado":
+        st.session_state.authenticated = True
+    else:
+        st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.write("")
-        st.write("")
-        st.subheader("PerezBoost System Access")
-        with st.form("login"):
-            pwd_input = st.text_input("Access Token:", type="password")
-            submitted = st.form_submit_button("Verificar")
-            if submitted:
-                if validar_password_cache(pwd_input):
+        st.subheader("🔐 PerezBoost Access")
+        with st.form("login_form"):
+            password = st.text_input("Token de Acceso", type="password")
+            recordar = st.checkbox("Mantenerme conectado (7 días)", value=True)
+            submit = st.form_submit_button("Entrar")
+            
+            if submit:
+                if password == st.secrets["ADMIN_PASSWORD"]:
                     st.session_state.authenticated = True
-                    st.session_state.ultima_clave = pwd_input
+                    
+                    if recordar:
+                        # Crear cookie que expira en 7 días
+                        expira = datetime.datetime.now() + datetime.timedelta(days=7)
+                        cookie_manager.set("perez_auth", "verificado", expires_at=expira)
+                    
+                    st.success("Acceso concedido.")
                     st.rerun()
                 else:
-                    st.error("❌ Clave incorrecta.")
+                    st.error("❌ Clave incorrecta")
     st.stop()
 
 # ==============================================================================
@@ -180,10 +184,9 @@ h_col1, h_col2 = st.columns([8, 1])
 with h_col1:
     st.title("🚀 PerezBoost | Monitor")
 with h_col2:
-    if st.button("Cerrar Sesión", key="btn_logout"):
+    if st.button("Salir", key="btn_logout"):
+        cookie_manager.delete("perez_auth")
         st.session_state.authenticated = False
-        st.session_state.pop("ultima_clave", None)
-        st.cache_data.clear()
         st.rerun()
 
 tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])

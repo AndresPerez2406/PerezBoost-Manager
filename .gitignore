@@ -29,9 +29,6 @@ venv/
 *.png
 *.jpg
 
-# --- Streamlit ---
-.streamlit/
-
 # --- Ejecutables y Compilación ---
 build/
 dist/
@@ -45,3 +42,4 @@ Thumbs.db
 
 # Notas personales y planificación
 MEJORAS.txt
+test_bot.py
