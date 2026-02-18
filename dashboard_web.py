@@ -3,6 +3,7 @@ import pandas as pd
 import psycopg2
 import os
 import base64
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
@@ -10,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 import warnings
 import extra_streamlit_components as stx
-import datetime
+import time
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 st.set_page_config(page_title="PerezBoost | Portal Operativo", page_icon="🎮", layout="wide")
@@ -119,41 +120,78 @@ if "t" in query_params:
     st.stop()
     
 # ==============================================================================
-# 3. AUTENTICACIÓN ADMIN (CON COOKIES REALES)
+# 3. AUTENTICACIÓN
 # ==============================================================================
 
-cookie_manager = stx.CookieManager()
-cookie_auth = cookie_manager.get(cookie="perez_auth")
+# 1. El Manager debe ir SIEMPRE ARRIBA DE TODO para que no estorbe en el medio
+cookie_manager = stx.CookieManager(key="perez_auth_manager")
 
+# Intentamos leer la cookie
+cookie_auth = None
+try:
+    cookie_auth = cookie_manager.get(cookie="perez_login_token")
+except:
+    pass
+
+# Estado inicial
 if 'authenticated' not in st.session_state:
-    if cookie_auth == "verificado":
-        st.session_state.authenticated = True
-    else:
-        st.session_state.authenticated = False
+    st.session_state.authenticated = False
 
+# Validación automática por cookie
+if cookie_auth == "SESION_VALIDA_PEREZBOOST":
+    st.session_state.authenticated = True
+
+# 2. CREAMOS UN CONTENEDOR SOLO PARA EL LOGIN
+# Esto es la magia: Todo el login vive aquí dentro.
+login_placeholder = st.empty()
+
+# Si NO está autenticado, mostramos el login DENTRO del contenedor
 if not st.session_state.authenticated:
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2:
-        st.write("")
-        st.subheader("🔐 PerezBoost Access")
-        with st.form("login_form"):
-            password = st.text_input("Token de Acceso", type="password")
-            recordar = st.checkbox("Mantenerme conectado (7 días)", value=True)
-            submit = st.form_submit_button("Entrar")
+    with login_placeholder.container():
+        # Centrado con columnas
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.write("")
+            st.write("")
+            st.subheader("🔐 Acceso PerezBoost")
             
-            if submit:
-                if password == st.secrets["ADMIN_PASSWORD"]:
-                    st.session_state.authenticated = True
+            with st.form("login_form"):
+                password = st.text_input("Credencial de Acceso:", type="password")
+                mantener = st.checkbox("No cerrar sesión (30 min)", value=True)
+                submit = st.form_submit_button("Ingresar")
+                
+                if submit:
+                    # VALIDACIÓN DE CONTRASEÑA
+                    # Busca en secrets o usa variable de entorno
+                    try:
+                        clave_real = st.secrets["ADMIN_PASSWORD"]
+                    except:
+                        clave_real = os.getenv("ADMIN_PASSWORD")
                     
-                    if recordar:
-                        # Crear cookie que expira en 7 días
-                        expira = datetime.datetime.now() + datetime.timedelta(days=7)
-                        cookie_manager.set("perez_auth", "verificado", expires_at=expira)
-                    
-                    st.success("Acceso concedido.")
-                    st.rerun()
-                else:
-                    st.error("❌ Clave incorrecta")
+                    if not clave_real:
+                        st.error("⚠️ Error: Configura ADMIN_PASSWORD en secrets.")
+                        st.stop()
+
+                    if password == clave_real:
+                        # LOGIN EXITOSO
+                        st.session_state.authenticated = True
+                        
+                        if mantener:
+                            expira = datetime.now() + timedelta(minutes=30)
+                            cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
+                        
+                        st.success("✅ Acceso Correcto")
+                        
+                        # LIMPIEZA VISUAL: Borramos el formulario INMEDIATAMENTE
+                        login_placeholder.empty() 
+                        
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("❌ Credencial Incorrecta")
+
+    # DETENEMOS EL SCRIPT AQUÍ
+    # Si no entra al if de arriba, se queda aquí y no muestra el resto del dashboard
     st.stop()
 
 # ==============================================================================
@@ -184,9 +222,14 @@ h_col1, h_col2 = st.columns([8, 1])
 with h_col1:
     st.title("🚀 PerezBoost | Monitor")
 with h_col2:
-    if st.button("Salir", key="btn_logout"):
-        cookie_manager.delete("perez_auth")
+    if st.button("Cerrar Sesión", key="btn_logout"):
+        try:
+            cookie_manager.delete("perez_login_token")
+        except KeyError:
+            pass
         st.session_state.authenticated = False
+        st.toast("👋 Cerrando sesión...", icon="🔒")
+        time.sleep(1)
         st.rerun()
 
 tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])
