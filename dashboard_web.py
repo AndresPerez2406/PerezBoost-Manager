@@ -117,16 +117,22 @@ if "t" in query_params:
     st.stop()
     
 # ==============================================================================
-# 3. AUTENTICACIÓN ADMIN
+# 3. AUTENTICACIÓN ADMIN (CON PERSISTENCIA DE CACHÉ)
 # ==============================================================================
 
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+# Esta función recordará que la clave es correcta por 24 horas (86400 segundos)
+@st.cache_data(ttl=300)
+def validar_password_cache(pwd_ingresado):
+    return pwd_ingresado == st.secrets["ADMIN_PASSWORD"]
 
-def verificar_login():
-    if st.session_state.pass_input == st.secrets["ADMIN_PASSWORD"]:
-        st.session_state.authenticated = True
-    else:
-        st.error("❌ Clave incorrecta.")
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+
+    if "ultima_clave" in st.session_state:
+        if validar_password_cache(st.session_state.ultima_clave):
+            st.session_state.authenticated = True
 
 if not st.session_state.authenticated:
     c1, c2, c3 = st.columns([1,2,1])
@@ -135,8 +141,15 @@ if not st.session_state.authenticated:
         st.write("")
         st.subheader("PerezBoost System Access")
         with st.form("login"):
-            st.text_input("Access Token:", type="password", key="pass_input")
-            st.form_submit_button("Verificar", on_click=verificar_login)
+            pwd_input = st.text_input("Access Token:", type="password")
+            submitted = st.form_submit_button("Verificar")
+            if submitted:
+                if validar_password_cache(pwd_input):
+                    st.session_state.authenticated = True
+                    st.session_state.ultima_clave = pwd_input
+                    st.rerun()
+                else:
+                    st.error("❌ Clave incorrecta.")
     st.stop()
 
 # ==============================================================================
@@ -169,6 +182,8 @@ with h_col1:
 with h_col2:
     if st.button("Cerrar Sesión", key="btn_logout"):
         st.session_state.authenticated = False
+        st.session_state.pop("ultima_clave", None)
+        st.cache_data.clear()
         st.rerun()
 
 tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])

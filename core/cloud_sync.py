@@ -30,12 +30,10 @@ AWS_CONF = {
     "port": os.getenv("AWS_PORT", "5432")
 }
 
-CLOUD_URL = os.getenv("DATABASE_URL_CLOUD")
-
 DB_LOCAL = "perezboost.db"
 
 # =======================================================
-# 🛠️ MOTOR MAESTRO DE SUBIDA (GENÉRICO)
+# 🛠️ MOTOR MAESTRO DE SUBIDA
 # =======================================================
 
 def _motor_subida_postgres(nombre_nube, connection_params):
@@ -48,27 +46,22 @@ def _motor_subida_postgres(nombre_nube, connection_params):
             conn_cloud = psycopg2.connect(connection_params)
         else:
             conn_cloud = psycopg2.connect(**connection_params)
-            
         cur_cloud = conn_cloud.cursor()
 
-        tablas = ["pedidos", "inventario", "boosters", "config_precios", "sistema_config", "logs"]
-        for t in tablas: 
-            cur_cloud.execute(f"DROP TABLE IF EXISTS {t} CASCADE;")
-            
-        cur_cloud.execute("CREATE TABLE boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
-        cur_cloud.execute("CREATE TABLE inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
-        cur_cloud.execute("CREATE TABLE config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
-        cur_cloud.execute("CREATE TABLE sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
-        cur_cloud.execute("CREATE TABLE logs (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
         
         cur_cloud.execute("""
-            CREATE TABLE pedidos (
+            CREATE TABLE IF NOT EXISTS pedidos (
                 id SERIAL PRIMARY KEY, booster_id INTEGER, booster_nombre VARCHAR(255),
                 user_pass VARCHAR(255), elo_inicial VARCHAR(50), fecha_inicio VARCHAR(50),
                 fecha_limite VARCHAR(50), estado VARCHAR(50), elo_final VARCHAR(50),
-                wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50), 
-                pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION, 
-                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0, 
+                wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50),
+                pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION,
+                ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
                 ajuste_motivo TEXT, pago_realizado INTEGER DEFAULT 0,
                 opgg TEXT
             );
@@ -82,10 +75,39 @@ def _motor_subida_postgres(nombre_nube, connection_params):
 
             def limpiar(v): return None if v in ["NULL", "NONE", ""] else v
             filas_L = [tuple([limpiar(x) for x in f]) for f in filas]
-            
-            cols = len(filas_L[0])
-            placeholders = ",".join(["%s"] * cols)
-            extras.execute_batch(cur_cloud, f"INSERT INTO {destino} VALUES ({placeholders})", filas_L)
+
+            if destino == "pedidos":
+                query = """
+                    INSERT INTO pedidos (
+                        id, booster_id, booster_nombre, user_pass, elo_inicial, 
+                        fecha_inicio, fecha_limite, estado, elo_final, wr, 
+                        fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
+                        ajuste_valor, ajuste_motivo, pago_realizado, opgg
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        booster_id = EXCLUDED.booster_id,
+                        booster_nombre = EXCLUDED.booster_nombre,
+                        user_pass = EXCLUDED.user_pass,
+                        elo_inicial = EXCLUDED.elo_inicial,
+                        fecha_inicio = EXCLUDED.fecha_inicio,
+                        fecha_limite = EXCLUDED.fecha_limite,
+                        estado = EXCLUDED.estado,
+                        elo_final = EXCLUDED.elo_final,
+                        wr = EXCLUDED.wr,
+                        fecha_fin_real = EXCLUDED.fecha_fin_real,
+                        pago_cliente = EXCLUDED.pago_cliente,
+                        pago_booster = EXCLUDED.pago_booster,
+                        ganancia_empresa = EXCLUDED.ganancia_empresa,
+                        ajuste_valor = EXCLUDED.ajuste_valor,
+                        ajuste_motivo = EXCLUDED.ajuste_motivo,
+                        pago_realizado = EXCLUDED.pago_realizado;
+                """
+                extras.execute_batch(cur_cloud, query, filas_L)
+            else:
+                cur_cloud.execute(f"DELETE FROM {destino};")
+                cols = len(filas_L[0])
+                placeholders = ",".join(["%s"] * cols)
+                extras.execute_batch(cur_cloud, f"INSERT INTO {destino} VALUES ({placeholders})", filas_L)
 
         migrar_tabla("boosters", "boosters")
         migrar_tabla("inventario", "inventario")

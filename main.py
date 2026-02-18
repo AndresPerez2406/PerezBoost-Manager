@@ -1,5 +1,6 @@
 import os
 import base64
+import sqlite3
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -893,7 +894,8 @@ class PerezBoostApp(ctk.CTk):
 
         cols = ("#", "booster", "elo", "demora", "pago_b", "ganancia_p", "bote", "total")
         self.tabla_rep = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
-
+        self.tabla_rep.bind("<Button-3>", self.abrir_menu_contextual)
+        
         headers = {
             "#": "N°", 
             "booster": "STAFF", 
@@ -918,6 +920,123 @@ class PerezBoostApp(ctk.CTk):
 
         self.actualizar_analitica()
 
+    def abrir_menu_contextual(self, event):
+        item_id = self.tabla_rep.identify_row(event.y)
+        if item_id:
+            self.tabla_rep.selection_set(item_id)
+            menu = tk.Menu(self, tearoff=0, bg="#1a1a1a", fg="white", activebackground="#1f538d", activeforeground="white")
+            menu.add_command(label="📝 Editar Datos", command=self.ventana_edicion_rapida)
+            menu.post(event.x_root, event.y_root)
+
+    def ventana_edicion_rapida(self):
+        seleccion = self.tabla_rep.selection()
+        if not seleccion: return
+        id_pedido = seleccion[0]
+
+        lista_staff = []
+        lista_elos = []
+        
+        try:
+            conn = sqlite3.connect("perezboost.db")
+            cur = conn.cursor()
+
+            cur.execute("""
+                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr 
+                FROM pedidos WHERE id = ?
+            """, (id_pedido,))
+            datos_db = cur.fetchone()
+
+            try:
+                cur.execute("SELECT nombre FROM boosters")
+                lista_staff = [r[0] for r in cur.fetchall()]
+            except: pass
+
+            print("--- CARGANDO ELOS ---")
+
+            try:
+                cur.execute("PRAGMA table_info(config_precios)")
+                columnas = [c[1] for c in cur.fetchall()]
+                
+                col_elo = "division" if "division" in columnas else "elo"
+                if col_elo in columnas:
+                    cur.execute(f"SELECT {col_elo} FROM config_precios")
+                    lista_elos = [r[0] for r in cur.fetchall()]
+                    print(f"✅ Cargados {len(lista_elos)} elos de config_precios")
+            except Exception as e: 
+                print(f"⚠️ Falló carga desde config: {e}")
+
+            if not lista_elos:
+                try:
+                    cur.execute("SELECT DISTINCT elo_final FROM pedidos WHERE elo_final IS NOT NULL AND elo_final != '' ORDER BY elo_final")
+                    lista_elos = [r[0] for r in cur.fetchall()]
+                    print(f"✅ Cargados {len(lista_elos)} elos históricos de pedidos")
+                except: pass
+
+            conn.close()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error leyendo BD: {e}")
+            return
+
+        if not datos_db: return
+        staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual = datos_db
+
+        if not lista_elos:
+            lista_elos = ["Fallo"]
+            print("⚠️ Usando lista manual de respaldo")
+
+        elo_str = str(elo_actual) if elo_actual else "Unranked"
+        if elo_str not in lista_elos: lista_elos.insert(0, elo_str)
+
+        v = ctk.CTkToplevel(self)
+        v.title(f"Edición Maestra #{id_pedido}")
+        v.geometry("360x600")
+        v.attributes("-topmost", True)
+
+        ctk.CTkLabel(v, text=f"Cuenta: {user_pass}", font=("Arial", 12, "bold"), text_color="#3498db").pack(pady=(15, 5))
+
+        ctk.CTkLabel(v, text="Staff:", font=("Arial", 11, "bold")).pack(pady=(5,0))
+        if str(staff_actual) not in lista_staff: lista_staff.append(str(staff_actual))
+        combo_staff = ctk.CTkOptionMenu(v, values=lista_staff, width=250, fg_color="#2b2b2b")
+        combo_staff.set(staff_actual)
+        combo_staff.pack(pady=5)
+
+        ctk.CTkLabel(v, text="Elo Final:", font=("Arial", 11, "bold")).pack(pady=(5,0))
+        combo_elo = ctk.CTkOptionMenu(v, values=lista_elos, width=250, fg_color="#2b2b2b")
+        combo_elo.set(elo_str)
+        combo_elo.pack(pady=5)
+
+        entradas = {}
+        campos = [("Win Rate (%):", "wr", wr_actual), ("Pago Cliente ($):", "pago_cliente", pago_cli_actual), ("Pago Staff ($):", "pago_booster", pago_staff_actual)]
+
+        for txt, col, val in campos:
+            ctk.CTkLabel(v, text=txt, font=("Arial", 11, "bold")).pack(pady=(5, 0))
+            e = ctk.CTkEntry(v, width=250)
+            e.insert(0, str(val) if val is not None else "0")
+            e.pack(pady=2)
+            entradas[col] = e
+
+        def guardar():
+            try:
+                def f(k): 
+                    try: return float(entradas[k].get().replace("$","").replace("%","").strip())
+                    except: return 0.0
+
+                conn = sqlite3.connect("perezboost.db")
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE pedidos SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=? WHERE id=?
+                """, (combo_staff.get(), combo_elo.get(), f("wr"), f("pago_cliente"), f("pago_booster"), id_pedido))
+                conn.commit()
+                conn.close()
+                
+                v.destroy()
+                self.actualizar_analitica()
+                messagebox.showinfo("Éxito", "Actualizado.")
+            except Exception as e: messagebox.showerror("Error", str(e))
+
+        ctk.CTkButton(v, text="💾 Guardar", fg_color="#27ae60", height=40, width=200, command=guardar).pack(pady=30)
+        
     def actualizar_analitica(self):
 
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
@@ -974,7 +1093,7 @@ class PerezBoostApp(ctk.CTk):
             t_ventas += v_total_cli
             conteo += 1
 
-            self.tabla_rep.insert("", "end", values=(
+            self.tabla_rep.insert("", "end", iid=r[0], values=(
                 contador_visual, 
                 r[2],            
                 r[8],            
@@ -1127,7 +1246,7 @@ class PerezBoostApp(ctk.CTk):
                 ws.column_dimensions['A'].width = 20
                 ws.column_dimensions['H'].width = 18
             
-            messagebox.showinfo("Éxito", "Reporte Excel V10 generado.")
+            messagebox.showinfo("Éxito", "Reporte Excel V12 generado.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
     
