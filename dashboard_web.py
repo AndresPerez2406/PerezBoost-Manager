@@ -123,32 +123,21 @@ if "t" in query_params:
 # 3. AUTENTICACIÓN
 # ==============================================================================
 
-# 1. El Manager debe ir SIEMPRE ARRIBA DE TODO para que no estorbe en el medio
 cookie_manager = stx.CookieManager(key="perez_auth_manager")
 
-# Intentamos leer la cookie
 cookie_auth = None
 try:
     cookie_auth = cookie_manager.get(cookie="perez_login_token")
 except:
     pass
 
-# Estado inicial
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
-
-# Validación automática por cookie
 if cookie_auth == "SESION_VALIDA_PEREZBOOST":
     st.session_state.authenticated = True
-
-# 2. CREAMOS UN CONTENEDOR SOLO PARA EL LOGIN
-# Esto es la magia: Todo el login vive aquí dentro.
 login_placeholder = st.empty()
-
-# Si NO está autenticado, mostramos el login DENTRO del contenedor
 if not st.session_state.authenticated:
     with login_placeholder.container():
-        # Centrado con columnas
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.write("")
@@ -161,8 +150,6 @@ if not st.session_state.authenticated:
                 submit = st.form_submit_button("Ingresar")
                 
                 if submit:
-                    # VALIDACIÓN DE CONTRASEÑA
-                    # Busca en secrets o usa variable de entorno
                     try:
                         clave_real = st.secrets["ADMIN_PASSWORD"]
                     except:
@@ -173,7 +160,6 @@ if not st.session_state.authenticated:
                         st.stop()
 
                     if password == clave_real:
-                        # LOGIN EXITOSO
                         st.session_state.authenticated = True
                         
                         if mantener:
@@ -181,17 +167,13 @@ if not st.session_state.authenticated:
                             cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
                         
                         st.success("✅ Acceso Correcto")
-                        
-                        # LIMPIEZA VISUAL: Borramos el formulario INMEDIATAMENTE
+
                         login_placeholder.empty() 
                         
                         time.sleep(0.5)
                         st.rerun()
                     else:
                         st.error("❌ Credencial Incorrecta")
-
-    # DETENEMOS EL SCRIPT AQUÍ
-    # Si no entra al if de arriba, se queda aquí y no muestra el resto del dashboard
     st.stop()
 
 # ==============================================================================
