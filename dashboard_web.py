@@ -124,16 +124,21 @@ if "t" in query_params:
 # ==============================================================================
 
 cookie_manager = stx.CookieManager(key="perez_auth_manager")
+
 cookie_auth = None
 try:
     cookie_auth = cookie_manager.get(cookie="perez_login_token")
 except:
     pass
+
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+
 if cookie_auth == "SESION_VALIDA_PEREZBOOST":
     st.session_state.authenticated = True
+
 login_placeholder = st.empty()
+
 if not st.session_state.authenticated:
     with login_placeholder.container():
         c1, c2, c3 = st.columns([1, 2, 1])
@@ -141,31 +146,27 @@ if not st.session_state.authenticated:
             st.write("")
             st.write("")
             st.subheader("🔐 Acceso PerezBoost")
-            
             with st.form("login_form"):
                 password = st.text_input("Credencial de Acceso:", type="password")
-                mantener = st.checkbox("No cerrar sesión.", value=True)
+                mantener = st.checkbox("No cerrar sesión (30 min)", value=True)
                 submit = st.form_submit_button("Ingresar")
-                
                 if submit:
                     try:
                         clave_real = st.secrets["ADMIN_PASSWORD"]
                     except:
                         clave_real = os.getenv("ADMIN_PASSWORD")
-                    
                     if not clave_real:
                         st.error("⚠️ Error: Configura ADMIN_PASSWORD en secrets.")
                         st.stop()
-
                     if password == clave_real:
                         st.session_state.authenticated = True
-                        
                         if mantener:
                             expira = datetime.now() + timedelta(minutes=30)
                             cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
-                        st.success("✅ Acceso Correcto")
+                        st.success("✅ Acceso Correcto... Guardando sesión")
+                        time.sleep(2)
+                        
                         login_placeholder.empty()
-                        time.sleep(0.5)
                         st.rerun()
                     else:
                         st.error("❌ Credencial Incorrecta")
@@ -202,7 +203,7 @@ with h_col2:
     if st.button("Cerrar Sesión", key="btn_logout"):
         try:
             cookie_manager.delete("perez_login_token")
-        except KeyError:
+        except:
             pass
         st.session_state.authenticated = False
         st.toast("👋 Cerrando sesión...", icon="🔒")
@@ -221,7 +222,7 @@ with tab_reportes:
     mes_actual_idx = datetime.now().month
     with f1:
         mes_sel = st.selectbox("📅 Mes", meses_nombres, index=mes_actual_idx)
-    with f2: 
+    with f2:
         df_boosters = run_query("SELECT DISTINCT booster_nombre FROM pedidos")
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
     with f3:

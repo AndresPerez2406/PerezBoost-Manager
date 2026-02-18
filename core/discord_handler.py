@@ -6,7 +6,7 @@ COLOR_SUCCESS = 5763719
 COLOR_INFO = 3447003      
 COLOR_WARNING = 16776960  
 COLOR_DANGER = 15158332   
-version = "V12"
+version = "V12.5"
 class DiscordNotifier:
     def __init__(self, webhook_url):
         self.webhook_url = webhook_url

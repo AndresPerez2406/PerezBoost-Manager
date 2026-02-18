@@ -47,7 +47,7 @@ class PerezBoostApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         inicializar_db()
-        version = "V12.0"
+        version = "V12.5"
 
         try:
             from core.cloud_sync import MODO_DESARROLLO
