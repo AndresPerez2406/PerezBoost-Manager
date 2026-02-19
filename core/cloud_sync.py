@@ -7,14 +7,17 @@ import time
 from dotenv import load_dotenv
 import os
 from dotenv import load_dotenv
+import decimal
 
-MODO_DESARROLLO = True
+sqlite3.register_adapter(decimal.Decimal, float)
+
+load_dotenv(".env")
+MODO_DESARROLLO = os.getenv("MODO_DESARROLLO") == "True"
 
 if MODO_DESARROLLO:
-    load_dotenv(".env.dev")
+    load_dotenv(".env.dev", override=True)
     print("🛠️ MODO DEV: Conectado a la base de datos de PRUEBAS")
 else:
-    load_dotenv(".env")
     print("🚀 MODO PROD: Conectado a la base de datos REAL")
 
 CLOUD_URL = os.getenv("DATABASE_URL")
@@ -53,6 +56,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS wallet_perez (id SERIAL PRIMARY KEY, fecha TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, tipo TEXT NOT NULL, categoria TEXT NOT NULL, monto DECIMAL(10,2) NOT NULL, descripcion TEXT);")
         
         cur_cloud.execute("""
             CREATE TABLE IF NOT EXISTS pedidos (
@@ -62,7 +66,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50),
                 pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION,
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
-                ajuste_motivo TEXT, pago_realizado INTEGER DEFAULT 0,
+                pago_realizado INTEGER DEFAULT 0,
                 opgg TEXT
             );
         """)
@@ -82,8 +86,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         id, booster_id, booster_nombre, user_pass, elo_inicial, 
                         fecha_inicio, fecha_limite, estado, elo_final, wr, 
                         fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
-                        ajuste_valor, ajuste_motivo, pago_realizado, opgg
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ajuste_valor, pago_realizado, opgg
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         booster_id = EXCLUDED.booster_id,
                         booster_nombre = EXCLUDED.booster_nombre,
@@ -99,7 +103,6 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         pago_booster = EXCLUDED.pago_booster,
                         ganancia_empresa = EXCLUDED.ganancia_empresa,
                         ajuste_valor = EXCLUDED.ajuste_valor,
-                        ajuste_motivo = EXCLUDED.ajuste_motivo,
                         pago_realizado = EXCLUDED.pago_realizado;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
@@ -173,7 +176,7 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         cur_local = conn_local.cursor()
 
         cur_local.execute("PRAGMA foreign_keys = OFF;")
-        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config"]:
+        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config", "wallet_perez"]:
             cur_local.execute(f"DELETE FROM {t}")
 
         def bajar(tabla_nube, tabla_local):
@@ -189,7 +192,8 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         bajar("sistema_config", "sistema_config")
         bajar("logs", "logs_auditoria")
         bajar("pedidos", "pedidos")
-
+        bajar("wallet_perez", "wallet_perez")
+        
         conn_local.commit()
         conn_local.close()
         conn_cloud.close()

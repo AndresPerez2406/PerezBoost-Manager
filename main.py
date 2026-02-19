@@ -1673,18 +1673,27 @@ class PerezBoostApp(ctk.CTk):
         tarifas = [t[0] for t in tarifas_raw]
 
         v = ctk.CTkToplevel(self)
-        self.centrar_ventana(v, 400, 520)
+        self.centrar_ventana(v, 400, 560)
         v.attributes("-topmost", True)
-
         v.title(f"Finalizar Orden #{num_orden_mes}")
 
-        ctk.CTkLabel(v, text="¿En qué Elo quedó la cuenta?").pack()
+        ctk.CTkLabel(v, text="¿En qué Elo quedó la cuenta?").pack(pady=(10,0))
         cb_div = ctk.CTkOptionMenu(v, values=tarifas, width=250)
         cb_div.pack(pady=5)
         
         ctk.CTkLabel(v, text="WinRate Final (%):").pack()
         e_wr = ctk.CTkEntry(v, placeholder_text="Ej: 85")
         e_wr.pack(pady=5)
+
+        ctk.CTkLabel(v, text="Ajuste de Saldo ($):").pack(pady=(10,0))
+        e_ajuste = ctk.CTkEntry(v, placeholder_text="0.00")
+        e_ajuste.insert(0, "0.00")
+        e_ajuste.pack(pady=5)
+
+        def limpiar_ajuste(event):
+            if e_ajuste.get() == "0.00":
+                e_ajuste.delete(0, 'end')
+        e_ajuste.bind("<Button-1>", limpiar_ajuste)
 
         var_publicar = ctk.BooleanVar(value=True) 
         chk_discord = ctk.CTkCheckBox(
@@ -1697,30 +1706,29 @@ class PerezBoostApp(ctk.CTk):
         def finish():
             try:
                 val_wr = e_wr.get()
+                val_ajuste = e_ajuste.get()
+
                 if not val_wr:
                     messagebox.showerror("Error", "El WinRate está vacío.", parent=v)
                     return
 
                 wr = float(val_wr)
+                ajuste = float(val_ajuste) if val_ajuste and val_ajuste.strip() != "" else 0.0
+                
                 elo_fin = cb_div.get()
                 fecha_hoy_iso = datetime.now().strftime("%Y-%m-%d")
 
                 conn = conectar(); cursor = conn.cursor()
-
                 cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
                 tarifa = cursor.fetchone()
 
                 if tarifa:
                     p_cli_base = float(tarifa[0])
                     g_per_base = float(tarifa[1])
+                    p_booster = (p_cli_base - g_per_base) + ajuste
+                    g_perez = (g_per_base - 1.0) - ajuste
 
-                    p_booster = p_cli_base - g_per_base
-                    g_perez = g_per_base - 1.0
-
-                    if wr >= 60:
-                        p_cliente = p_cli_base + 1.0
-                    else:
-                        p_cliente = p_cli_base
+                    p_cliente = p_cli_base + 1.0 if wr >= 60 else p_cli_base
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
@@ -1729,55 +1737,36 @@ class PerezBoostApp(ctk.CTk):
                 fecha_inicio_str = res_fecha[0] if res_fecha else fecha_hoy_iso
 
                 try:
-
-                    if "/" in str(fecha_inicio_str):
-                        f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%d/%m/%Y")
-                    else:
-                        f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%Y-%m-%d")
-                    
+                    f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%d/%m/%Y") if "/" in str(fecha_inicio_str) else datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%Y-%m-%d")
+                    nombre_mes_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}[f_obj.month]
                     mes_inicio_iso = f_obj.strftime("%Y-%m")
-                    meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
-                                7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
-                    nombre_mes_es = meses_es[f_obj.month]
                 except:
-                    mes_inicio_iso = datetime.now().strftime("%Y-%m")
                     nombre_mes_es = "ACTUAL"
+                    mes_inicio_iso = datetime.now().strftime("%Y-%m")
 
-                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente):
-
+                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste):
                     if var_publicar.get():
                         try:
-
                             cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_inicio LIKE ?", (f"{mes_inicio_iso}%",))
                             num_orden_discord = cursor.fetchone()[0]
-                            
-                            titulo_discord = f"✅ PEDIDO #{num_orden_discord} DE {nombre_mes_es}"
                             url = obtener_config_sistema("discord_webhook")
                             
                             if url:
                                 cursor.execute("SELECT COUNT(*) FROM pedidos WHERE booster_nombre = ? AND estado = 'Terminado' AND fecha_inicio LIKE ?", (nom_booster, f"{mes_inicio_iso}%"))
                                 total_mes_booster = cursor.fetchone()[0]
-
                                 noti = DiscordNotifier(url)
+                                
                                 campos_embed = [
-                                    {
-                                        "name": "👤 Staff", 
-                                        "value": f"**{nom_booster}**\n\n**📌 Quedó en**\n`{elo_fin}`", 
-                                        "inline": True
-                                    },
-                                    {
-                                        "name": "🔥 Racha", 
-                                        "value": f"{total_mes_booster}º de {nombre_mes_es}\n\n**🎯 WinRate**\n`{wr}%`", 
-                                        "inline": True
-                                    },
-                                    {
-                                        "name": "💸 Pago Staff", 
-                                        "value": f"__**${p_booster:.2f}**__", 
-                                        "inline": False
-                                    }
+                                    {"name": "👤 STAFF", "value": f"**{nom_booster}**", "inline": True},
+                                    {"name": "🔥 RACHA MENSUAL", "value": f"**{total_mes_booster}º del mes**", "inline": True},
+                                    {"name": "📌 QUEDÓ EN", "value": f"`{elo_fin}`", "inline": True},
+                                    {"name": "🎯 WR", "value": f"`{wr}%`", "inline": True},
+                                    {"name": "💸 PAGO", "value": f"**${p_booster:.2f}**", "inline": True},
+                                    {"name": "⚙️ AJUSTE", "value": f"**${ajuste:.2f}**", "inline": True}
                                 ]
+
                                 noti.enviar_notificacion(
-                                    titulo=titulo_discord, 
+                                    titulo=f"✅ PEDIDO #{num_orden_discord} DE {nombre_mes_es}", 
                                     descripcion="", 
                                     color=5763719, 
                                     campos=campos_embed
@@ -1786,24 +1775,17 @@ class PerezBoostApp(ctk.CTk):
                             print(f"Error notificando Discord: {e}")
 
                     conn.close() 
-                    registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada por {nom_booster}.")
-                    messagebox.showinfo("Éxito", "¡Pedido finalizado!", parent=v)
+                    registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada. Ajuste: {ajuste}.")
+                    messagebox.showinfo("Éxito", f"¡Pedido finalizado!\nPago Staff: ${p_booster:.2f}\nTu Neto: ${g_perez:.2f}", parent=v)
                     v.destroy()
                     self.mostrar_pedidos()
-
-                    if hasattr(self, 'actualizar_dashboard'):
-                        self.actualizar_dashboard()
                 else:
                     conn.close()
-                    messagebox.showerror("Error", "No se pudo actualizar la base de datos.", parent=v)
-
+                    messagebox.showerror("Error", "No se pudo actualizar la DB.", parent=v)
             except ValueError:
-                messagebox.showerror("Error", "El WinRate debe ser un número.", parent=v)
-            except Exception as e:
-                messagebox.showerror("Error", f"Ocurrió un error inesperado: {e}", parent=v)
+                messagebox.showerror("Error", "WinRate y Ajuste deben ser números.", parent=v)
 
-        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71",
-                      height=40, font=("Arial", 12, "bold"), command=finish).pack(pady=20)
+        ctk.CTkButton(v, text="Confirmar Finalización", fg_color="#2ecc71", height=40, font=("Arial", 12, "bold"), command=finish).pack(pady=20)
         
     def abrir_ventana_extender_tiempo(self):
         sel = self.tabla_pedidos.selection()

@@ -48,13 +48,21 @@ st.markdown("""
 # 1. CONEXIÓN A LA BASE DE DATOS
 # ==============================================================================
 
-load_dotenv(override=True)
+load_dotenv(".env")
+MODO_DESARROLLO = os.getenv("MODO_DESARROLLO") == "True"
+
+if MODO_DESARROLLO:
+    load_dotenv(".env.dev", override=True)
+    print("🛠️ MODO DEV: Conectado a la base de datos de PRUEBAS")
+else:
+    print("🚀 MODO PROD: Conectado a la base de datos REAL")
 
 def get_connection():
     url = os.getenv("DATABASE_URL")
     try: return psycopg2.connect(url, connect_timeout=10)
     except: return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def run_query(query):
     conn = get_connection()
     if conn:
@@ -163,10 +171,11 @@ if not st.session_state.authenticated:
                         if mantener:
                             expira = datetime.now() + timedelta(minutes=30)
                             cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
-                        st.success("✅ Acceso Correcto... Guardando sesión")
+                        st.success("✅ Acceso Correcto. Redirigiendo...")
                         time.sleep(2)
                         
                         login_placeholder.empty()
+                        st.cache_data.clear()
                         st.rerun()
                     else:
                         st.error("❌ Credencial Incorrecta")
@@ -201,16 +210,17 @@ with h_col1:
     st.title("🚀 PerezBoost | Monitor")
 with h_col2:
     if st.button("Cerrar Sesión", key="btn_logout"):
+        st.session_state["logout_solicitado"] = True
+        st.session_state.authenticated = False
         try:
             cookie_manager.delete("perez_login_token")
         except:
             pass
-        st.session_state.authenticated = False
-        st.toast("👋 Cerrando sesión...", icon="🔒")
-        time.sleep(1)
+        st.toast("👋 Sesión cerrada", icon="🔒")
+        time.sleep(0.5)
         st.rerun()
 
-tab_reportes, tab_inventario, tab_ranking, tab_tracking = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING"])
+tab_reportes, tab_inventario, tab_ranking, tab_tracking, tab_binance = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING", "💰 BINANCE"])
 
 # ==============================================================================
 # TAB 1: REPORTES
@@ -227,7 +237,7 @@ with tab_reportes:
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
     with f3:
         st.write("")
-        if st.button("🔄 Refrescar"): st.rerun()
+        if st.button("🔄 Refrescar"):  st.cache_data.clear(), st.rerun()
     query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
     if mes_sel != "Todos":
         n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
@@ -451,7 +461,7 @@ with tab_tracking:
     with c1:
         st.subheader("🔍 Tracking Operativo")
     with c2:
-        if st.button("🔄 Refrescar", key="btn_refresh_track"): st.rerun()
+        if st.button("🔄 Refrescar", key="btn_refresh_track"): st.cache_data.clear(),st.rerun()
         
     st.info("💡 Monitorea las cuentas activas y edita los enlaces si el staff cometió un error.")
     
@@ -522,3 +532,200 @@ with tab_tracking:
                         conn.close()
                 else:
                     st.error("❌ Error de conexión a la nube.") 
+
+# ==============================================================================
+# VENTANAS EMERGENTES PARA BINANCE
+# ==============================================================================
+
+@st.dialog("✏️ Modificar Transacción")
+def modal_editar_transaccion(fila):
+    id_real = int(fila['id'])
+    st.write(f"Modificando el registro")
+    
+    with st.form("form_modal_edit"):
+        e_tipo = st.selectbox("Tipo:", ["RETIRO", "INGRESO"], index=0 if fila['tipo'] == 'RETIRO' else 1)
+        e_cat = st.selectbox("Categoría:", ["NETO", "BOTE"], index=0 if fila['categoria'] == 'NETO' else 1)
+        e_monto = st.number_input("Monto ($):", min_value=0.01, step=1.00, value=float(fila['monto']), format="%.2f")
+        e_desc = st.text_input("Descripción:", value=fila['descripcion'])
+
+        guardar = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+        
+        if guardar:
+            conn = get_connection()
+            if conn:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE wallet_perez SET tipo=%s, categoria=%s, monto=%s, descripcion=%s WHERE id=%s", 
+                                    (e_tipo, e_cat, e_monto, e_desc, id_real))
+                        conn.commit()
+                    st.success("✅ Actualizado correctamente.")
+                    time.sleep(1); st.cache_data.clear(),st.rerun()
+                except Exception as e: st.error(f"Error: {e}")
+                finally: conn.close()
+
+@st.dialog("⚠️ Confirmar Eliminación")
+def modal_eliminar_transaccion(id_real, detalle):
+    st.error("¿Estás seguro de eliminar este movimiento?")
+    st.write(f"**{detalle}**")
+    st.write("Esta acción recalculará tu Binance y no se puede deshacer.")
+    
+    if st.button("🗑️ Sí, Eliminar Definitivamente", type="primary", use_container_width=True):
+        conn = get_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM wallet_perez WHERE id=%s", (id_real,))
+                    conn.commit()
+                st.success("🗑️ Registro eliminado.")
+                time.sleep(1); st.cache_data.clear(), st.rerun()
+            except Exception as e: st.error(f"Error: {e}")
+            finally: conn.close()
+
+# ==============================================================================
+# TAB 5: BINANCE
+# ==============================================================================
+
+with tab_binance:
+    st.subheader("🏦 Binance Wallet")
+
+    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr FROM pedidos WHERE estado = 'Terminado'")
+    neto_historico = 0.0
+    bote_historico = 0.0
+    
+    if not df_pedidos_all.empty:
+        for _, row in df_pedidos_all.iterrows():
+            p_cli = clean_num(row['pago_cliente'])
+            p_boo = clean_num(row['pago_booster'])
+            wr = clean_num(row['wr'])
+            valor_bote = 2.0 if wr >= 60 else 1.0
+            
+            neto_historico += (p_cli - p_boo - valor_bote)
+            bote_historico += valor_bote
+
+        neto_historico += 5.0
+        bote_historico -= 5.0
+
+    df_wallet = run_query("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez ORDER BY id DESC")
+    
+    neto_movimientos = 0.0
+    bote_movimientos = 0.0
+    
+    if not df_wallet.empty:
+        for _, row in df_wallet.iterrows():
+            monto = float(row['monto'])
+            if row['tipo'] == 'RETIRO':
+                if row['categoria'] == 'NETO': neto_movimientos -= monto
+                elif row['categoria'] == 'BOTE': bote_movimientos -= monto
+            elif row['tipo'] == 'INGRESO':
+                if row['categoria'] == 'NETO': neto_movimientos += monto
+                elif row['categoria'] == 'BOTE': bote_movimientos += monto
+
+    saldo_neto_actual = neto_historico + neto_movimientos
+    saldo_bote_actual = bote_historico + bote_movimientos
+    total_binance = saldo_neto_actual + saldo_bote_actual
+
+    st.markdown("""
+        <style>
+        .metric-box {
+            background-color: #1a1e23; border: 1px solid #333; border-radius: 8px;
+            padding: 20px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .metric-title { color: #8892b0; font-size: 16px; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; }
+        .metric-value-neto { color: #2ecc71; font-size: 32px; font-weight: bold; }
+        .metric-value-bote { color: #f1c40f; font-size: 32px; font-weight: bold; }
+        .metric-value-total { color: #ffffff; font-size: 36px; font-weight: bold; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns(3)
+    with c1: st.markdown(f'<div class="metric-box"><div class="metric-title">Mi Neto Disponible</div><div class="metric-value-neto">${saldo_neto_actual:.2f}</div></div>', unsafe_allow_html=True)
+    with c2: st.markdown(f'<div class="metric-box"><div class="metric-title">Bote Ranking (Staff)</div><div class="metric-value-bote">${saldo_bote_actual:.2f}</div></div>', unsafe_allow_html=True)
+    with c3: st.markdown(f'<div class="metric-box"><div class="metric-title">Total en Binance</div><div class="metric-value-total">${total_binance:.2f}</div></div>', unsafe_allow_html=True)
+
+    st.write("")
+    st.divider()
+
+    col_form, col_hist = st.columns([1, 2])
+    
+    with col_form:
+        st.subheader("💸 Nueva Transacción")
+        with st.form("form_wallet"):
+            tipo_tx = st.selectbox("Tipo de Movimiento:", ["RETIRO", "INGRESO"])
+            cat_tx = st.selectbox("Categoría afectada:", ["NETO", "BOTE"])
+            monto_tx = st.number_input("Monto ($):", min_value=0.01, step=1.00, format="%.2f")
+            desc_tx = st.text_input("Descripción (Ej: Retiro a Nequi):")
+            
+            if st.form_submit_button("Registrar Movimiento"):
+                if not desc_tx:
+                    st.error("Por favor agrega una descripción.")
+                else:
+                    conn = get_connection()
+                    if conn:
+                        try:
+                            with conn.cursor() as cur:
+                                cur.execute("INSERT INTO wallet_perez (tipo, categoria, monto, descripcion) VALUES (%s, %s, %s, %s)", (tipo_tx, cat_tx, monto_tx, desc_tx))
+                                conn.commit()
+                            st.success("✅ Registrado con éxito.")
+                            time.sleep(1); st.cache_data.clear(),st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+                        finally: conn.close()
+
+    with col_hist:
+        st.subheader("📜 Historial de Movimientos")
+        if df_wallet.empty:
+            st.info("No hay movimientos registrados aún.")
+        else:
+            df_mostrar = df_wallet.copy()
+            df_mostrar['fecha_dt'] = pd.to_datetime(df_mostrar['fecha'])
+            
+            meses_es = {1:"Enero", 2:"Febrero", 3:"Marzo", 4:"Abril", 5:"Mayo", 6:"Junio", 7:"Julio", 8:"Agosto", 9:"Septiembre", 10:"Octubre", 11:"Noviembre", 12:"Diciembre"}
+            df_mostrar['mes_str'] = df_mostrar['fecha_dt'].dt.month.map(meses_es) + " " + df_mostrar['fecha_dt'].dt.year.astype(str)
+            
+            opciones_filtro = ["Todos"] + df_mostrar['mes_str'].unique().tolist()
+            mes_actual_str = meses_es[datetime.now().month] + " " + str(datetime.now().year)
+            idx_defecto = opciones_filtro.index(mes_actual_str) if mes_actual_str in opciones_filtro else 0
+            
+            c_filtro, c_vacio = st.columns([1, 1])
+            with c_filtro:
+                mes_seleccionado = st.selectbox("📅 Filtrar por mes:", opciones_filtro, index=idx_defecto)
+                
+            if mes_seleccionado != "Todos":
+                df_filtrado = df_mostrar[df_mostrar['mes_str'] == mes_seleccionado].copy()
+            else:
+                df_filtrado = df_mostrar.copy()
+                
+            total_retirado = df_filtrado[df_filtrado['tipo'] == 'RETIRO']['monto'].astype(float).sum()
+            st.markdown(f"**Total Retirado ({mes_seleccionado}):** <span style='color:#2ecc71; font-size:20px;'>**${total_retirado:.2f}**</span>", unsafe_allow_html=True)
+            st.write("")
+            
+            if df_filtrado.empty:
+                st.warning(f"No hay movimientos para {mes_seleccionado}.")
+            else:
+                df_filtrado['fecha_str'] = df_filtrado['fecha_dt'].dt.strftime('%d/%m/%y %H:%M')
+                df_filtrado['monto_str'] = df_filtrado.apply(lambda r: f"-${float(r['monto']):.2f}" if r['tipo'] == 'RETIRO' else f"+${float(r['monto']):.2f}", axis=1)
+                df_filtrado['id_visual'] = range(1, len(df_filtrado) + 1)
+                df_final = df_filtrado[['id_visual', 'fecha_str', 'tipo', 'categoria', 'monto_str', 'descripcion']]
+                df_final.columns = ["Nº", "Fecha", "Tipo", "Caja", "Monto", "Detalle"]
+
+                st.dataframe(df_final, use_container_width=True, hide_index=True)
+                st.divider()
+                st.markdown("### ⚙️ Gestionar Registro")
+                opciones_crud = df_filtrado.apply(lambda r: f"Nº {r['id_visual']} | {r['tipo']} | {r['monto_str']} | {r['descripcion']} (ID:{r['id']})", axis=1).tolist()
+                seleccion = st.selectbox("Selecciona un movimiento de la tabla:", opciones_crud, label_visibility="collapsed")
+                c_btn1, c_btn2, c_btn3 = st.columns(3)
+                
+                with c_btn1:
+                    if st.button("✏️ Editar", use_container_width=True):
+                        id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
+                        fila_sel = df_wallet[df_wallet['id'] == id_real].iloc[0]
+                        modal_editar_transaccion(fila_sel)
+                        
+                with c_btn2:
+                    if st.button("🗑️ Eliminar", use_container_width=True):
+                        id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
+                        detalle_mostrar = seleccion.split("(ID:")[0].strip()
+                        modal_eliminar_transaccion(id_real, detalle_mostrar)
+                        
+                with c_btn3:
+                    if st.button("🔄 Refresh", use_container_width=True):
+                        st.cache_data.clear(), st.rerun()

@@ -218,30 +218,25 @@ def obtener_resumen_alertas():
     conn.close()
     return vencidos, stock
     
-def finalizar_pedido_db(id_pedido, wr_final, fecha_fin, elo_final, ganancia_empresa, pago_booster, pago_cliente):
-    conn = conectar(); cursor = conn.cursor()
+def finalizar_pedido_db(id_r, wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor):
     try:
-        if "/" in str(fecha_fin):
-            fecha_db = datetime.strptime(fecha_fin, "%d/%m/%Y").strftime("%Y-%m-%d")
-        else:
-            fecha_db = str(fecha_fin).split(' ')[0]
-
+        conn = conectar()
+        cursor = conn.cursor()
+        
+        # Agregamos ajuste_valor a la actualización
         cursor.execute("""
             UPDATE pedidos 
-            SET estado = 'Terminado',
-                wr = ?,
-                fecha_fin_real = ?,
-                elo_final = ?,
-                ganancia_empresa = ?,
-                pago_booster = ?,
-                pago_cliente = ?
+            SET estado = 'Terminado', wr = ?, fecha_fin_real = ?, 
+                elo_final = ?, ganancia_empresa = ?, pago_booster = ?, 
+                pago_cliente = ?, ajuste_valor = ?
             WHERE id = ?
-        """, (wr_final, fecha_db, elo_final, float(ganancia_empresa), float(pago_booster), float(pago_cliente), id_pedido))
+        """, (wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor, id_r))
         
         conn.commit()
+        conn.close()
         return True
     except Exception as e:
-        print(f"Error Crítico BD: {e}")
+        print(f"Error al finalizar pedido en DB: {e}")
         return False
     finally:
         conn.close()

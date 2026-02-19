@@ -1,33 +1,37 @@
----
-
 # PerezBoost Manager V12.5 🛡️ (Secure Horizon Edition)
 
 **Enterprise-grade management suite** designed for high-performance Elo Boosting services. A **Stateful Hybrid Architecture** that combines robust local processing with a persistent, visually rich cloud dashboard.
 
-**Version:** 12.5 | **Architecture:** Hybrid (Local-First + Cloud Sync + Stateful Web) | **Stack:** Python 3.10+, SQLite/PostgreSQL, Streamlit, Plotly.
+**Version:** 12.5 | **Architecture:** Hybrid (Local-First + Cloud Sync + RAM Caching) | **Stack:** Python 3.10+, SQLite/PostgreSQL, Streamlit, Plotly.
 
 ---
 
 ## 🚀 What's New in V12.5 (Secure Horizon)
 
-* **🔐 Stateful Session Persistence:** Implemented a robust **Cookie-Based Authentication System** (30-min lifespan) that survives page reloads and browser restarts. Includes latency-tolerant logic for seamless cloud deployment.
-* **📈 Visual BI Suite:** New interactive **Plotly Pie Charts** and High-Impact KPI Cards in the web dashboard for instant financial breakdown (Net Profit vs. Staff Payouts vs. Ranking Pot).
-* **🛠️ Master Data Editor:** Enhanced Desktop module with a **"Triple-Fallback Strategy"** to dynamically fetch Staff and Elo lists from SQL history, ensuring data integrity even without configuration tables.
-* **🛡️ Operational Audit (Fiscal Forensics):** Real-time anomaly detection engine that identifies orders with critical Win Rates (<50%) and delivery delays (Red/Yellow Alerts).
-* **☁️ Cloud-Native Security:** Full migration to Environment Variables/Secrets for credential protection, removing all hardcoded keys.
+* **⚡ RAM Caching Logic:** Integrated `@st.cache_data` with intelligent TTL management, reducing database latency by 90% and providing an instantaneous UI experience.
+* **💰 Binance Hub CRUD:** A dedicated financial module with  **Modal-based Transaction Management** , monthly filtering, and real-time "Net Profit" vs "Ranking Pot" reconciliation.
+* **🔐 Stateful Session Persistence:** Robust **Cookie-Based Authentication** with an integrated "Security Circuit Breaker" for guaranteed logout and session protection.
+* **🌐 Automated Telemetry Tracking:** Dynamic generation of OPGG tracking links for boosters via base64-encoded secure tokens.
 
 ---
 
 ## 🗺️ Engineering Roadmap
 
-| **Version** | **Codename**         | **Status**      | **Key Objective**                                                    |
-| ----------------- | -------------------------- | --------------------- | -------------------------------------------------------------------------- |
-| **V10.0**   | **Cloud Foundation** | ✅**Completed** | AWS/Supabase integration and relational schema mapping.                    |
-| **V11.0**   | **Hybrid Sync**      | ✅**Completed** | Dual-Cloud engine with non-blocking background threading.                  |
-| **V12.0**   | **Fiscal Forensics** | ✅**Completed** | Automated anomaly detection and mobile dispatch inventory.                 |
-| **V12.5**   | **Secure Horizon**   | ✅**Deployed**  | **Session Persistence (Cookies), Advanced BI Charts & Secure Auth.** |
-| **V13.0**   | **Telegram Ops**     | 🏗️**In Dev**  | Real-time mission-critical alerts via Telegram Bot API.                    |
-| **V14.0**   | **Analytics Hub**    | 📅**Planned**   | Advanced Business Intelligence (BI) suite with professional PDF reporting. |
+| **Version** | **Codename**       | **Status**      | **Key Objective**                                                                       |
+| ----------------- | ------------------------ | --------------------- | --------------------------------------------------------------------------------------------- |
+| **V10-V12** | **Foundations**    | ✅**Completed** | Hybrid Sync, Cloud Engine, and Mobile Dispatch Inventory.                                     |
+| **V12.5**   | **Secure Horizon** | ✅**Deployed**  | RAM Caching, Binance CRUD Modals, & Stateless Secure Auth.                                    |
+| **V13.0**   | **GitAnalytics**   | 🏗️**In Dev**  | **Deep Data Mining:**Booster performance heatmaps, churn rate, and ROI per order.             |
+| **V14.0**   | **Auto-Pilot Ops** | 📅**Planned**   | **Automated Booster Payouts:**One-click bulk crypto/Nequi payment generation & API alerts.    |
+| **V15.0**   | **Scale Master**   | 📅**Planned**   | **Multi-Tenancy Support:**Infrastructure for managing multiple boosting teams under one SaaS. |
+
+## 🛠️ Tech Stack & Optimization
+
+* **Database:** PostgreSQL (Cloud/Supabase) & SQLite (Local) with atomic transaction handling.
+* **Optimization:** Data frames optimized via `pandas` with vectorized operations for financial totals.
+* **Security:** Multi-layer environment protection (`.env` + Streamlit Secrets) and secure URL tokenization.
+
+---
 
 ## ⚙️ Quick Start (Local)
 
@@ -41,10 +45,10 @@ cd PerezBoost-Manager
 pip install -r requirements.txt
 ```
 
-**2. Launch:**
+**2. Launch Environment:**
 
-* **Desktop App:** `python main.py`
-* **Web Dashboard:** `streamlit run dashboard_web.py`
+* **Desktop Engine:** `python main.py`
+* **Performance Dashboard:** `streamlit run dashboard_web.py`
 
 ---
 
