@@ -222,8 +222,6 @@ def finalizar_pedido_db(id_r, wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, 
     try:
         conn = conectar()
         cursor = conn.cursor()
-        
-        # Agregamos ajuste_valor a la actualización
         cursor.execute("""
             UPDATE pedidos 
             SET estado = 'Terminado', wr = ?, fecha_fin_real = ?, 
@@ -257,7 +255,7 @@ def obtener_historial_completo():
                wr
         FROM pedidos 
         WHERE estado IN ('Terminado', 'Abandonado') 
-        ORDER BY fecha_inicio DESC, id DESC
+        ORDER BY fecha_fin_real DESC, id DESC
     """)
     data = cursor.fetchall()
     conn.close()
@@ -329,32 +327,19 @@ def eliminar_precio_db(div):
 # ==========================================
 
 def obtener_resumen_financiero_real(filtro_fecha=None):
-    """
-    Calcula el dinero REAL visualizando el descuento del Bote.
-    Retorna: (Total Pago Boosters, Ganancia Perez (NETA), Total Pedidos)
-    """
     conn = conectar()
     cursor = conn.cursor()
-    
-    if not filtro_fecha:
-        filtro_fecha = datetime.now().strftime("%Y-%m")
+    if not filtro_fecha: filtro_fecha = datetime.now().strftime("%Y-%m")
 
     cursor.execute("""
-        SELECT 
-            SUM(pago_booster), 
-            SUM(ganancia_empresa) - COUNT(*), 
-            COUNT(*)
+        SELECT SUM(pago_booster), SUM(ganancia_empresa) - COUNT(*), COUNT(*)
         FROM pedidos 
-        WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ? 
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ? 
     """, (f"{filtro_fecha}%",))
     
     res = cursor.fetchone()
     conn.close()
-    
-    if res and res[2] > 0:
- 
-        return (res[0] or 0.0, res[1] or 0.0, res[2])
+    if res and res[2] > 0: return (res[0] or 0.0, res[1] or 0.0, res[2])
     return (0.0, 0.0, 0)
 
 def obtener_profit_diario_db():
@@ -373,7 +358,6 @@ def obtener_profit_diario_db():
     return res[0] if res and res[0] else 0.0
 
 def obtener_kpis_mensuales():
-    """Devuelve (Ganancia Real del Mes, Cantidad Terminados Mes)"""
     conn = conectar()
     cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
@@ -381,17 +365,12 @@ def obtener_kpis_mensuales():
     cursor.execute("""
         SELECT SUM(ganancia_empresa) - COUNT(*), COUNT(*) 
         FROM pedidos 
-        WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ?
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
     """, (f"{mes_actual}%",))
     
     datos = cursor.fetchone()
     conn.close()
-    
-    ganancia = datos[0] if datos[0] else 0.0
-    cantidad = datos[1] if datos[1] else 0
-    
-    return ganancia, cantidad
+    return datos[0] if datos[0] else 0.0, datos[1] if datos[1] else 0
 
 def obtener_conteo_stock():
     conn = conectar()
@@ -461,7 +440,7 @@ def obtener_datos_reporte_avanzado(mes_nombre, booster_nombre):
         mes_num = meses_dict.get(mes_nombre)
         anio_actual = datetime.now().year
 
-        query += " AND fecha_inicio LIKE ?"
+        query += " AND fecha_fin_real LIKE ?"
         params.append(f"{anio_actual}-{mes_num}%")
         
     if booster_nombre != "Todos":
@@ -529,76 +508,50 @@ def obtener_logs_db(limite=50):
 
 def obtener_ranking_staff_db(filtro_fecha=None):
     conn = conectar(); cursor = conn.cursor()
-    
-    if not filtro_fecha:
-        filtro_fecha = datetime.now().strftime("%Y-%m")
+    if not filtro_fecha: filtro_fecha = datetime.now().strftime("%Y-%m")
 
     query = """
     SELECT b.nombre, 
-           -- 1. Total Terminados
            COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
-           
-           -- 2. CAMBIO AQUÍ: Contar cuántos tuvieron WR >= 60 (Los que suman al Bote)
            COUNT(CASE WHEN p.estado = 'Terminado' AND p.wr >= 60 THEN 1 END) as high_wr,
-           
-           -- 3. Abandonos
            COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
-           
-           -- 4. Puntaje (Score)
            COALESCE(SUM(CASE 
-               WHEN p.estado = 'Terminado' THEN 
-                   COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
+               WHEN p.estado = 'Terminado' THEN COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
                WHEN p.estado = 'Abandonado' THEN -10 
                ELSE 0 END), 0) as score
     FROM boosters b 
     LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
-    WHERE p.fecha_inicio LIKE ? 
+    WHERE p.fecha_fin_real LIKE ? 
     GROUP BY b.id, b.nombre 
     HAVING (terminados > 0 OR abandonos > 0)
     ORDER BY score DESC LIMIT 10
     """
-    
     cursor.execute(query, (f"{filtro_fecha}%",))
-    ranking = cursor.fetchall()
-    conn.close()
-    return ranking
+    ranking = cursor.fetchall(); conn.close(); return ranking
 
 def obtener_total_bote_ranking():
     conn = conectar(); cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
 
-    sql = f"""
-        SELECT 
-            COUNT(*) + 
-            COALESCE(SUM(CASE WHEN wr >= 60 THEN 1 ELSE 0 END), 0) 
+    sql = """
+        SELECT COUNT(*) + COALESCE(SUM(CASE WHEN wr >= 60 THEN 1 ELSE 0 END), 0) 
         FROM pedidos 
-        WHERE estado = 'Terminado' AND fecha_inicio LIKE {P}
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
     """
-    
     cursor.execute(sql, (f"{mes_actual}%",))
     resultado = cursor.fetchone()
-    
-    total_bote = resultado[0] if resultado and resultado[0] else 0
-    
     conn.close()
-    return total_bote
+    return resultado[0] if resultado and resultado[0] else 0
 
 def obtener_pedidos_mes_actual_db():
-    conn = conectar()
-    cursor = conn.cursor()
+    conn = conectar(); cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
 
     cursor.execute("""
-        SELECT COUNT(*) 
-        FROM pedidos 
-        WHERE estado = 'Terminado' 
-        AND fecha_inicio LIKE ?
-        AND wr > 60
+        SELECT COUNT(*) FROM pedidos 
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ? AND wr > 60
     """, (f"{mes_actual}%",))
-    
-    res = cursor.fetchone()
-    conn.close()
-    return res[0] if res else 0
+    res = cursor.fetchone(); conn.close(); return res[0] if res else 0
 
 def obtener_resumen_mensual_db(filtro_fecha=None):
     """
@@ -610,7 +563,7 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
 
     if filtro_fecha:
 
-        where_clause = "WHERE fecha_inicio LIKE ? AND estado IN ('Terminado', 'Abandonado')"
+        where_clause = "WHERE fecha_fin_real LIKE ? AND estado IN ('Terminado', 'Abandonado')"
         params = (f"{filtro_fecha}%",)
     else:
 
@@ -626,12 +579,12 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
             
             -- CÁLCULO DE DÍAS PROMEDIO (Eficiencia)
             COALESCE(AVG(
-                CASE WHEN estado = 'Terminado' THEN 
-                    JULIANDAY(fecha_fin_real) - JULIANDAY(fecha_inicio) 
+                CASE WHEN estado = 'Terminado' THEN
+                    JULIANDAY(fecha_fin_real) - JULIANDAY(fecha_inicio)
                 END
             ), 0)
             
-        FROM pedidos 
+        FROM pedidos
         {where_clause}
     """
     
@@ -640,65 +593,46 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
     conn.close()
 
     if res:
-        return res 
+        return res
     else:
         return (0, 0, 0, 0, 0)
     
 def obtener_ranking_db():
-    conn = conectar()
-    cursor = conn.cursor()
+    conn = conectar(); cursor = conn.cursor()
     mes_actual = datetime.now().strftime("%Y-%m")
-    
+
     query = """
         SELECT booster_nombre, COUNT(*), AVG(wr)
         FROM pedidos
-        WHERE estado = 'Terminado'
-        AND fecha_inicio LIKE ?
-        GROUP BY booster_nombre
-        ORDER BY COUNT(*) DESC
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
+        GROUP BY booster_nombre ORDER BY COUNT(*) DESC
     """
     cursor.execute(query, (f"{mes_actual}%",))
-    res = cursor.fetchall()
-    conn.close()
-    return res
-
+    res = cursor.fetchall(); conn.close(); return res
+    
 # ==========================================
 # SECCIÓN 10: SISTEMA PAGOS A BOOSTERS
 # ==========================================
 
 def obtener_balance_general_db(filtro_fecha=None):
-    """
-    Retorna: (Utilidad Bruta, Total Cliente, Total Booster, Cantidad Pedidos Terminados)
-    Filtra por FECHA DE INICIO para coincidir con Ranking y Reportes.
-    """
-    conn = conectar()
-    cursor = conn.cursor()
+    conn = conectar(); cursor = conn.cursor()
 
     query = """
-        SELECT 
-            SUM(pago_cliente), 
-            SUM(pago_booster),
-            SUM(ganancia_empresa),
-            COUNT(*)
-        FROM pedidos 
-        WHERE estado = 'Terminado'
+        SELECT SUM(pago_cliente), SUM(pago_booster), SUM(ganancia_empresa), COUNT(*)
+        FROM pedidos WHERE estado = 'Terminado'
     """
-    
     params = []
-
     if filtro_fecha:
-        query += " AND fecha_inicio LIKE ?"
+        query += " AND fecha_fin_real LIKE ?"
         params.append(f"{filtro_fecha}%")
         
     cursor.execute(query, params)
-    res = cursor.fetchone()
-    conn.close()
+    res = cursor.fetchone(); conn.close()
 
     total_cli = res[0] if res[0] is not None else 0.0
     total_boo = res[1] if res[1] is not None else 0.0
     utilidad = res[2] if res[2] is not None else (total_cli - total_boo)
     cantidad = res[3] if res[3] is not None else 0
-    
     return utilidad, total_cli, total_boo, cantidad
 
 def obtener_saldos_pendientes_db():

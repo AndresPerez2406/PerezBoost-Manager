@@ -47,7 +47,7 @@ class PerezBoostApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         inicializar_db()
-        version = "V12.5"
+        self.version = os.getenv("APP_VERSION", "V.Unknown")
 
         try:
             from core.cloud_sync import MODO_DESARROLLO
@@ -61,7 +61,7 @@ class PerezBoostApp(ctk.CTk):
             env_tag = " [PRODUCCIÓN]"
             self.color_status = "#2ecc71"
 
-        self.title(f"PerezBoost Manager {version}{env_tag}")
+        self.title(f"PerezBoost Manager {self.version}{env_tag}")
 
         self.geometry("1240x750")
         ctk.set_appearance_mode("dark")
@@ -895,6 +895,8 @@ class PerezBoostApp(ctk.CTk):
         cols = ("#", "booster", "elo", "demora", "pago_b", "ganancia_p", "bote", "total")
         self.tabla_rep = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
         self.tabla_rep.bind("<Button-3>", self.abrir_menu_contextual)
+        self.tabla_rep.tag_configure('pagado', foreground='#2ecc71')
+        self.tabla_rep.tag_configure('pendiente', foreground='#808080')
         
         headers = {
             "#": "N°", 
@@ -932,16 +934,15 @@ class PerezBoostApp(ctk.CTk):
         seleccion = self.tabla_rep.selection()
         if not seleccion: return
         id_pedido = seleccion[0]
-
         lista_staff = []
         lista_elos = []
-        
+
         try:
             conn = sqlite3.connect("perezboost.db")
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr 
+                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr, fecha_fin_real, pago_realizado 
                 FROM pedidos WHERE id = ?
             """, (id_pedido,))
             datos_db = cur.fetchone()
@@ -951,26 +952,14 @@ class PerezBoostApp(ctk.CTk):
                 lista_staff = [r[0] for r in cur.fetchall()]
             except: pass
 
-            print("--- CARGANDO ELOS ---")
-
             try:
                 cur.execute("PRAGMA table_info(config_precios)")
                 columnas = [c[1] for c in cur.fetchall()]
-                
                 col_elo = "division" if "division" in columnas else "elo"
                 if col_elo in columnas:
                     cur.execute(f"SELECT {col_elo} FROM config_precios")
                     lista_elos = [r[0] for r in cur.fetchall()]
-                    print(f"✅ Cargados {len(lista_elos)} elos de config_precios")
-            except Exception as e: 
-                print(f"⚠️ Falló carga desde config: {e}")
-
-            if not lista_elos:
-                try:
-                    cur.execute("SELECT DISTINCT elo_final FROM pedidos WHERE elo_final IS NOT NULL AND elo_final != '' ORDER BY elo_final")
-                    lista_elos = [r[0] for r in cur.fetchall()]
-                    print(f"✅ Cargados {len(lista_elos)} elos históricos de pedidos")
-                except: pass
+            except: pass
 
             conn.close()
 
@@ -979,32 +968,27 @@ class PerezBoostApp(ctk.CTk):
             return
 
         if not datos_db: return
-        staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual = datos_db
 
-        if not lista_elos:
-            lista_elos = ["Fallo"]
-            print("⚠️ Usando lista manual de respaldo")
-
-        elo_str = str(elo_actual) if elo_actual else "Unranked"
-        if elo_str not in lista_elos: lista_elos.insert(0, elo_str)
+        staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual = datos_db
 
         v = ctk.CTkToplevel(self)
-        v.title(f"Edición Maestra #{id_pedido}")
-        v.geometry("360x600")
+        v.title(f"Edición Pedido #{id_pedido}")
+        v.geometry("380x720")
         v.attributes("-topmost", True)
 
         ctk.CTkLabel(v, text=f"Cuenta: {user_pass}", font=("Arial", 12, "bold"), text_color="#3498db").pack(pady=(15, 5))
 
         ctk.CTkLabel(v, text="Staff:", font=("Arial", 11, "bold")).pack(pady=(5,0))
-        if str(staff_actual) not in lista_staff: lista_staff.append(str(staff_actual))
-        combo_staff = ctk.CTkOptionMenu(v, values=lista_staff, width=250, fg_color="#2b2b2b")
-        combo_staff.set(staff_actual)
-        combo_staff.pack(pady=5)
+        combo_staff = ctk.CTkOptionMenu(v, values=lista_staff, width=250)
+        combo_staff.set(staff_actual); combo_staff.pack(pady=5)
 
         ctk.CTkLabel(v, text="Elo Final:", font=("Arial", 11, "bold")).pack(pady=(5,0))
-        combo_elo = ctk.CTkOptionMenu(v, values=lista_elos, width=250, fg_color="#2b2b2b")
-        combo_elo.set(elo_str)
-        combo_elo.pack(pady=5)
+        combo_elo = ctk.CTkOptionMenu(v, values=lista_elos, width=250)
+        combo_elo.set(elo_actual if elo_actual else "Unranked"); combo_elo.pack(pady=5)
+
+        ctk.CTkLabel(v, text="Fecha de Entrega (YYYY-MM-DD):", font=("Arial", 11, "bold")).pack(pady=(5, 0))
+        e_fecha = ctk.CTkEntry(v, width=250)
+        e_fecha.insert(0, str(fecha_fin_actual).split(" ")[0] if fecha_fin_actual else ""); e_fecha.pack(pady=2)
 
         entradas = {}
         campos = [("Win Rate (%):", "wr", wr_actual), ("Pago Cliente ($):", "pago_cliente", pago_cli_actual), ("Pago Staff ($):", "pago_booster", pago_staff_actual)]
@@ -1012,9 +996,14 @@ class PerezBoostApp(ctk.CTk):
         for txt, col, val in campos:
             ctk.CTkLabel(v, text=txt, font=("Arial", 11, "bold")).pack(pady=(5, 0))
             e = ctk.CTkEntry(v, width=250)
-            e.insert(0, str(val) if val is not None else "0")
-            e.pack(pady=2)
+            e.insert(0, str(val) if val is not None else "0"); e.pack(pady=2)
             entradas[col] = e
+
+        ctk.CTkLabel(v, text="Estado del Pago:", font=("Arial", 11, "bold")).pack(pady=(5,0))
+        var_pago = ctk.BooleanVar(value=True if pago_actual == 1 else False)
+        switch_pago = ctk.CTkSwitch(v, text="Marcar como PAGADO", variable=var_pago, 
+                                   progress_color="#2ecc71", text_color="#2ecc71" if pago_actual == 1 else "gray")
+        switch_pago.pack(pady=10)
 
         def guardar():
             try:
@@ -1022,64 +1011,75 @@ class PerezBoostApp(ctk.CTk):
                     try: return float(entradas[k].get().replace("$","").replace("%","").strip())
                     except: return 0.0
 
+                nuevo_estado_pago = 1 if var_pago.get() else 0
+                nueva_fecha = e_fecha.get().strip()
+                if not nueva_fecha: nueva_fecha = None
+
                 conn = sqlite3.connect("perezboost.db")
                 cur = conn.cursor()
+
                 cur.execute("""
-                    UPDATE pedidos SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=? WHERE id=?
-                """, (combo_staff.get(), combo_elo.get(), f("wr"), f("pago_cliente"), f("pago_booster"), id_pedido))
+                    UPDATE pedidos 
+                    SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, fecha_fin_real=?, pago_realizado=?
+                    WHERE id=?
+                """, (combo_staff.get(), combo_elo.get(), f("wr"), f("pago_cliente"), f("pago_booster"), nueva_fecha, nuevo_estado_pago, id_pedido))
+                
                 conn.commit()
                 conn.close()
                 
                 v.destroy()
                 self.actualizar_analitica()
-                messagebox.showinfo("Éxito", "Actualizado.")
-            except Exception as e: messagebox.showerror("Error", str(e))
+                messagebox.showinfo("Éxito", "Registro actualizado correctamente.")
+            except Exception as e: 
+                messagebox.showerror("Error", f"Error al guardar: {e}")
 
-        ctk.CTkButton(v, text="💾 Guardar", fg_color="#27ae60", height=40, width=200, command=guardar).pack(pady=30)
-        
+        ctk.CTkButton(v, text="💾 Guardar Cambios", fg_color="#27ae60", hover_color="#2ecc71", height=40, width=200, command=guardar).pack(pady=(20, 10))
+
     def actualizar_analitica(self):
-
+        
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
         for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
         mes_sel = self.combo_mes.get()
         booster_sel = self.combo_booster_rep.get()
-        datos = obtener_datos_reporte_avanzado(self.combo_mes.get(), booster_sel)
+
+        datos = obtener_datos_reporte_avanzado(mes_sel, booster_sel)
 
         t_staff, t_neto, t_bote, t_ventas = 0.0, 0.0, 0.0, 0.0
-        conteo, dias_totales = 0, 0
+        conteo_pagados, dias_totales = 0, 0
 
         def limpiar(v):
             try: return float(str(v).replace('$','').replace(',','').strip()) if v else 0.0
             except: return 0.0
 
         if not datos:
-            ctk.CTkLabel(self.graficos_frame, text="Sin registros").pack(expand=True)
+            ctk.CTkLabel(self.graficos_frame, text="⚠️ Sin registros finalizados").pack(expand=True)
             return
 
         contador_visual = 1
 
         for r in datos:
+            try: esta_pagado = int(r[15] if r[15] is not None else 0)
+            except: esta_pagado = 0
+            
             v_total_cli = limpiar(r[11])
             v_pago_staff = limpiar(r[12])
 
             txt_dias = "⚡ <24h"
+            d_num = 0
             try:
                 f_ini_str = str(r[5]).split(' ')[0] if r[5] else ""
                 f_fin_str = str(r[10]).split(' ')[0] if r[10] else ""
                 if f_ini_str and f_fin_str:
-                    d_ini = d_fin = None
                     for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
-                        try: 
-                            if not d_ini: d_ini = datetime.strptime(f_ini_str, fmt)
-                            if not d_fin: d_fin = datetime.strptime(f_fin_str, fmt)
+                        try:
+                            d_ini = datetime.strptime(f_ini_str, fmt)
+                            d_fin = datetime.strptime(f_fin_str, fmt)
+                            d_num = (d_fin - d_ini).days
+                            txt_dias = f"{max(d_num, 1)} días"
+                            break
                         except: continue
-                    if d_ini and d_fin:
-                        diff = (d_fin - d_ini).days
-                        if diff > 0:
-                            txt_dias = f"{diff} días"
-                            dias_totales += diff
             except: txt_dias = "N/A"
 
             try: wr = float(r[9]) if r[9] else 0.0
@@ -1087,36 +1087,36 @@ class PerezBoostApp(ctk.CTk):
             valor_bote = 2.0 if wr >= 60 else 1.0
             mi_neto_real = v_total_cli - v_pago_staff - valor_bote
 
-            t_staff += v_pago_staff
-            t_neto += mi_neto_real
-            t_bote += valor_bote
-            t_ventas += v_total_cli
-            conteo += 1
+            if esta_pagado == 1:
+                t_staff += v_pago_staff
+                t_neto += mi_neto_real
+                t_bote += valor_bote
+                t_ventas += v_total_cli
+                conteo_pagados += 1
+                dias_totales += max(d_num, 1)
+                tag_fila = 'pagado'
+            else:
+                tag_fila = 'pendiente'
 
             self.tabla_rep.insert("", "end", iid=r[0], values=(
-                contador_visual, 
-                r[2],            
-                r[8],            
-                txt_dias,        
-                f"${v_pago_staff:.2f}", 
-                f"${mi_neto_real:.2f}", 
-                f"${valor_bote:.2f}", 
-                f"${v_total_cli:.2f}"
-            ))
+                contador_visual, r[2], r[8], txt_dias,
+                f"${v_pago_staff:.2f}", f"${mi_neto_real:.2f}",
+                f"${valor_bote:.2f}", f"${v_total_cli:.2f}"
+            ), tags=(tag_fila,))
+            
             contador_visual += 1
 
-        if mes_sel == "Todos" or mes_sel == "Enero":
+        if mes_sel in ["Todos", "Enero"]:
             t_bote -= 5.0
             t_neto += 5.0
 
-        prom_dias = dias_totales / conteo if conteo > 0 else 0
-        
-        self.crear_card_mini(self.kpi_frame, "PAGO STAFF", f"${t_staff:.2f}", "#3498db", 0)
-        self.crear_card_mini(self.kpi_frame, "MI NETO", f"${t_neto:.2f}", "#2ecc71", 1)
-        self.crear_card_mini(self.kpi_frame, "BOTE RANKING", f"${t_bote:.2f}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "VENTAS TOTALES", f"${t_ventas:.2f}", "#9b59b6", 3)
-        self.crear_card_mini(self.kpi_frame, "PROM. DÍAS", f"{prom_dias:.1f} d", "#e67e22", 4)
+        prom_dias = dias_totales / conteo_pagados if conteo_pagados > 0 else 0
 
+        self.crear_card_mini(self.kpi_frame, "COSTO STAFF (PAGADO)", f"${t_staff:.2f}", "#3498db", 0)
+        self.crear_card_mini(self.kpi_frame, "MI NETO REAL", f"${t_neto:.2f}", "#2ecc71", 1)
+        self.crear_card_mini(self.kpi_frame, "BOTE RECOLECTADO", f"${t_bote:.2f}", "#f1c40f", 2)
+        self.crear_card_mini(self.kpi_frame, "INGRESOS COBRADOS", f"${t_ventas:.2f}", "#9b59b6", 3)
+        self.crear_card_mini(self.kpi_frame, "VELOCIDAD MEDIA", f"{prom_dias:.1f} d", "#e67e22", 4)
         self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
 
     def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
@@ -1169,14 +1169,17 @@ class PerezBoostApp(ctk.CTk):
     def exportar_excel_avanzado(self):
         import pandas as pd
         from datetime import datetime
+        from tkinter import messagebox, filedialog
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
         
         mes = self.combo_mes.get()
         booster = self.combo_booster_rep.get()
-        nombre_sugerido = f"Reporte_V10_{mes}_{booster.replace(' ', '_')}.xlsx"
+        nombre_sugerido = f"Cierre_Financiero_{mes}_{booster.replace(' ', '_')}.xlsx"
         
         datos = obtener_datos_reporte_avanzado(mes, booster)
         if not datos: 
-            messagebox.showwarning("Sin Datos", "No hay datos para exportar.")
+            messagebox.showwarning("Sin Datos", f"No hay datos en {mes} para exportar.")
             return
 
         ruta = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=nombre_sugerido)
@@ -1185,68 +1188,106 @@ class PerezBoostApp(ctk.CTk):
         lista_procesada = []
         for r in datos:
             if str(r[7]).upper() == 'TERMINADO':
-
                 try:
-                    if r[5] and r[10]:
-                        str_ini = str(r[5])[:10] 
-                        str_fin = str(r[10])[:10]
-                        try: ini = datetime.strptime(str_ini, "%Y-%m-%d")
-                        except: ini = datetime.strptime(str_ini, "%d/%m/%Y")
-                        try: fin = datetime.strptime(str_fin, "%Y-%m-%d")
-                        except: fin = datetime.strptime(str_fin, "%d/%m/%Y")
-                        
+                    str_ini = str(r[5])[:10] if r[5] else ""
+                    str_fin = str(r[10])[:10] if r[10] else ""
+                    if str_ini and str_fin:
+                        ini = pd.to_datetime(str_ini, format='mixed', dayfirst=False)
+                        fin = pd.to_datetime(str_fin, format='mixed', dayfirst=False)
                         dias = (fin - ini).days
-                        dias = dias if dias > 0 else 1
+                        dias = max(dias, 1)
                     else: dias = 1
                 except: dias = 1
 
-                val_staff = float(r[12] or 0)
-                val_perez_bruto = float(r[13] or 0)
-
-                val_perez_neto = val_perez_bruto - 1.0
-                val_bote = 1.0
-                val_total_cliente = val_staff + val_perez_bruto
+                wr = float(r[9] if r[9] else 0)
+                val_cliente = float(r[11] if r[11] else 0)
+                val_staff = float(r[12] if r[12] else 0)
+                val_bote = 2.0 if wr >= 60 else 1.0
+                val_perez_neto = val_cliente - val_staff - val_bote
 
                 lista_procesada.append({
-                    "Booster": r[2],
-                    "Elo Final": r[8],
-                    "WR": f"{r[9]}%",
-                    "Días": dias,
+                    "BOOSTER": r[2],
+                    "CUENTA (User)": str(r[3]).split(':')[0] if r[3] else "N/A",
+                    "ELO FINAL": r[8],
+                    "WR (%)": wr / 100.0,
+                    "DÍAS": dias,
+                    "PAGO CLIENTE": val_cliente,
                     "PAGO STAFF": val_staff,
-                    "GANANCIA NETA": val_perez_neto, 
-                    "APORTE BOTE": val_bote,         
-                    "TOTAL CLIENTE": val_total_cliente
+                    "APORTE BOTE": val_bote,
+                    "GANANCIA NETA": val_perez_neto
                 })
 
-        if not lista_procesada: 
-            messagebox.showinfo("Info", "No hay pedidos terminados para exportar.")
-            return
+        if not lista_procesada: return
         
         df = pd.DataFrame(lista_procesada)
-
         totales = df.sum(numeric_only=True)
         row_total = pd.DataFrame([{
-            "Booster": "TOTALES >>", "Elo Final": "", "WR": "", "Días": "",
+            "BOOSTER": "TOTALES ACUMULADOS >>", 
+            "CUENTA (User)": "", "ELO FINAL": "", "WR (%)": "", "DÍAS": "",
+            "PAGO CLIENTE": totales["PAGO CLIENTE"],
             "PAGO STAFF": totales["PAGO STAFF"],
-            "GANANCIA NETA": totales["GANANCIA NETA"],
             "APORTE BOTE": totales["APORTE BOTE"],
-            "TOTAL CLIENTE": totales["TOTAL CLIENTE"]
+            "GANANCIA NETA": totales["GANANCIA NETA"]
         }])
         df = pd.concat([df, row_total], ignore_index=True) 
 
         try:
             with pd.ExcelWriter(ruta, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Cierre_Mes', index=False)
+                df.to_excel(writer, sheet_name='Cierre_Financiero', index=False, startrow=1)
+                ws = writer.sheets['Cierre_Financiero']
 
-                ws = writer.sheets['Cierre_Mes']
-                for col in ['E', 'F', 'G', 'H']: 
-                    for cell in ws[col]:
-                        cell.number_format = '$ #,##0.00'
-                
-                ws.column_dimensions['A'].width = 20
-                ws.column_dimensions['H'].width = 18
-            
-            messagebox.showinfo("Éxito", "Reporte Excel V12 generado.")
+                borde_fino = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+                centrado = Alignment(horizontal='center', vertical='center')
+                moneda = Alignment(horizontal='right', vertical='center')
+
+                ws.merge_cells('A1:I1')
+                titulo = ws['A1']
+                titulo.value = f"REPORTE FINANCIERO PEREZBOOST | Mes: {mes.upper()} | Staff: {booster.upper()}"
+                titulo.font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
+                titulo.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                titulo.alignment = centrado
+
+                for col_num in range(1, len(df.columns) + 1):
+                    celda = ws.cell(row=2, column=col_num)
+                    celda.font = Font(bold=True, color="FFFFFF")
+                    celda.fill = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")
+                    celda.alignment = centrado
+                    celda.border = borde_fino
+
+                max_row = ws.max_row
+                for row in range(3, max_row + 1):
+                    is_total_row = (row == max_row)
+                    for col in range(1, len(df.columns) + 1):
+                        celda = ws.cell(row=row, column=col)
+                        celda.border = borde_fino
+                        if is_total_row:
+                            celda.font = Font(bold=True)
+                            celda.fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+                        
+                        if col == 4 and not is_total_row:
+                            celda.number_format = '0.0%'
+                            celda.alignment = centrado
+                        elif col in [1, 2, 3, 5]:
+                            celda.alignment = centrado
+                        elif col >= 6:
+                            celda.number_format = '"$" #,##0.00'
+                            celda.alignment = moneda
+                            if col == 9 and not is_total_row and celda.value and float(celda.value) > 0:
+                                celda.font = Font(color="006100")
+                                celda.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+                for col_cells in ws.columns:
+                    max_length = 0
+                    column_letter = get_column_letter(col_cells[0].column)
+                    for cell in col_cells:
+                        try:
+                            if cell.value and len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except: pass
+                    ws.column_dimensions[column_letter].width = max_length + 4
+                ws.freeze_panes = 'A3'
+
+            messagebox.showinfo("Éxito", "Reporte generado correctamente.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
     
@@ -1345,7 +1386,7 @@ class PerezBoostApp(ctk.CTk):
             
             self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1 Pedido + $1 Bono WR)")
 
-            ranking_data = obtener_ranking_staff_db(filtro) 
+            ranking_data = obtener_ranking_staff_db(filtro)
             
             if not ranking_data:
                 self.tabla_rank.insert("", "end", values=("...", "Sin datos...", "-", "-", "-", "0 pts"))
@@ -1364,11 +1405,11 @@ class PerezBoostApp(ctk.CTk):
                     else: rango = f"#{i}"
 
                     item = self.tabla_rank.insert("", "end", values=(
-                        rango, 
-                        nombre, 
-                        terminados, 
+                        rango,
+                        nombre,
+                        terminados,
                         f"{aportes_wr}",
-                        abandonos, 
+                        abandonos,
                         f"{puntaje} pts"
                     ))
                     
@@ -1490,7 +1531,6 @@ class PerezBoostApp(ctk.CTk):
         self.actualizar_lista_liquidaciones()
 
     def actualizar_tarjetas_finanzas(self, seleccion):
-        """Recalcula el Dashboard Financiero con el ajuste manual de Enero (V10.5)"""
         for widget in self.stats_container.winfo_children():
             widget.destroy()
 
@@ -1513,11 +1553,9 @@ class PerezBoostApp(ctk.CTk):
         bote_real = cant_term + cant_high_wr
         utilidad_neta_real = total_cli - total_staff - bote_real
 
-        ## --- 🛠️ AJUSTE MANUAL ENERO Pagos WR (Filtro Todos y Enero) ---
         if seleccion == "Todos" or seleccion == "Enero":
             bote_real -= 5.0
             utilidad_neta_real += 5.0
-        # --------------------------------------------------------
 
         def crear_card(parent, titulo, valor, color):
             f = ctk.CTkFrame(parent, fg_color="transparent")
@@ -1525,8 +1563,8 @@ class PerezBoostApp(ctk.CTk):
             ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), text_color="gray").pack()
             ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 24, "bold"), text_color=color).pack()
 
-        crear_card(self.stats_container, "INGRESOS TOTALES", total_cli, "#9b59b6") 
-        crear_card(self.stats_container, "COSTO STAFF", total_staff, "#e74c3c")      
+        crear_card(self.stats_container, "INGRESOS TOTALES", total_cli, "#9b59b6")
+        crear_card(self.stats_container, "COSTO STAFF", total_staff, "#e74c3c")
         
         lbl_bote = "BOTE ACUMULADO" if seleccion == "Todos" else f"BOTE {seleccion.upper()}"
         crear_card(self.stats_container, lbl_bote, bote_real, "#f1c40f") 

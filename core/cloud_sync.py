@@ -5,8 +5,6 @@ import os
 import threading
 import time
 from dotenv import load_dotenv
-import os
-from dotenv import load_dotenv
 import decimal
 
 sqlite3.register_adapter(decimal.Decimal, float)
@@ -21,8 +19,6 @@ else:
     print("🚀 MODO PROD: Conectado a la base de datos REAL")
 
 CLOUD_URL = os.getenv("DATABASE_URL")
-
-load_dotenv()
 SUPABASE_URL = os.getenv("DATABASE_URL")
 
 AWS_CONF = {
@@ -36,7 +32,7 @@ AWS_CONF = {
 DB_LOCAL = "perezboost.db"
 
 # =======================================================
-# 🛠️ MOTOR MAESTRO DE SUBIDA
+# 🛠️ MOTOR MAESTRO DE SUBIDA (PUSH)
 # =======================================================
 
 def _motor_subida_postgres(nombre_nube, connection_params):
@@ -103,7 +99,11 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         pago_booster = EXCLUDED.pago_booster,
                         ganancia_empresa = EXCLUDED.ganancia_empresa,
                         ajuste_valor = EXCLUDED.ajuste_valor,
-                        pago_realizado = EXCLUDED.pago_realizado;
+                        pago_realizado = EXCLUDED.pago_realizado,
+                        opgg = CASE
+                                  WHEN EXCLUDED.opgg IS NULL OR EXCLUDED.opgg = '' THEN pedidos.opgg
+                                  ELSE EXCLUDED.opgg
+                               END;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             else:
@@ -115,8 +115,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         migrar_tabla("boosters", "boosters")
         migrar_tabla("inventario", "inventario")
         migrar_tabla("config_precios", "config_precios")
-        migrar_tabla("sistema_config", "sistema_config")
-        migrar_tabla("logs_auditoria", "logs") 
+        migrar_tabla("logs_auditoria", "logs")
         migrar_tabla("pedidos", "pedidos")
 
         for t in ["pedidos", "boosters", "inventario", "logs"]:
@@ -167,16 +166,26 @@ def logica_subir_a_nube(callback_exito, callback_error):
 
 def logica_bajar_de_nube(callback_exito, callback_error):
     try:
-
         if not SUPABASE_URL: raise ValueError("No hay URL de Supabase")
 
         conn_cloud = psycopg2.connect(SUPABASE_URL)
         cur_cloud = conn_cloud.cursor()
         conn_local = sqlite3.connect(DB_LOCAL)
         cur_local = conn_local.cursor()
-
         cur_local.execute("PRAGMA foreign_keys = OFF;")
-        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "sistema_config", "wallet_perez"]:
+
+        cur_local.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_perez (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                fecha TEXT, 
+                tipo TEXT, 
+                categoria TEXT, 
+                monto REAL, 
+                descripcion TEXT
+            )
+        """)
+
+        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez"]:
             cur_local.execute(f"DELETE FROM {t}")
 
         def bajar(tabla_nube, tabla_local):
@@ -189,7 +198,6 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         bajar("boosters", "boosters")
         bajar("inventario", "inventario")
         bajar("config_precios", "config_precios")
-        bajar("sistema_config", "sistema_config")
         bajar("logs", "logs_auditoria")
         bajar("pedidos", "pedidos")
         bajar("wallet_perez", "wallet_perez")

@@ -42,7 +42,7 @@ def calcular_pago_real(division, wr, ajuste_manual=0):
         
         if wr >= 60:
             pago_booster += 1.0
-            precio_cliente += 1.0 
+            precio_cliente += 1.0
 
         if wr < 50:
             pago_booster -= (pago_booster * 0.25)
@@ -65,7 +65,7 @@ def calcular_pago_real(division, wr, ajuste_manual=0):
 # SECCIÓN 3: GESTIÓN DE TIEMPOS
 # ==========================================
 
-def calcular_fecha_limite_sugerida(dias=10): 
+def calcular_fecha_limite_sugerida(dias=10):
     return (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d %H:%M")
 
 def extender_fecha(fecha_actual_str, dias_a_sumar):

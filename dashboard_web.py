@@ -14,7 +14,6 @@ import extra_streamlit_components as stx
 import time
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
-st.set_page_config(page_title="PerezBoost | Portal Operativo", page_icon="🎮", layout="wide")
 
 st.markdown("""
 <style>
@@ -49,7 +48,14 @@ st.markdown("""
 # ==============================================================================
 
 load_dotenv(".env")
+APP_VERSION = os.getenv("APP_VERSION", "V.Unknown")
 MODO_DESARROLLO = os.getenv("MODO_DESARROLLO") == "True"
+
+st.set_page_config(
+    page_title=f"PerezBoost {APP_VERSION} | Portal Operativo",
+    page_icon="🎮",
+    layout="wide"
+)
 
 if MODO_DESARROLLO:
     load_dotenv(".env.dev", override=True)
@@ -62,7 +68,7 @@ def get_connection():
     try: return psycopg2.connect(url, connect_timeout=10)
     except: return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def run_query(query):
     conn = get_connection()
     if conn:
@@ -156,7 +162,7 @@ if not st.session_state.authenticated:
             st.subheader("🔐 Acceso PerezBoost")
             with st.form("login_form"):
                 password = st.text_input("Credencial de Acceso:", type="password")
-                mantener = st.checkbox("No cerrar sesión (30 min)", value=True)
+                mantener = st.checkbox("No cerrar sesión.", value=True)
                 submit = st.form_submit_button("Ingresar")
                 if submit:
                     try:
@@ -169,11 +175,10 @@ if not st.session_state.authenticated:
                     if password == clave_real:
                         st.session_state.authenticated = True
                         if mantener:
-                            expira = datetime.now() + timedelta(minutes=30)
+                            expira = datetime.now() + timedelta(minutes=300)
                             cookie_manager.set("perez_login_token", "SESION_VALIDA_PEREZBOOST", expires_at=expira)
                         st.success("✅ Acceso Correcto. Redirigiendo...")
                         time.sleep(2)
-                        
                         login_placeholder.empty()
                         st.cache_data.clear()
                         st.rerun()
@@ -207,7 +212,7 @@ def format_fecha_latam(fecha_val):
 
 h_col1, h_col2 = st.columns([8, 1])
 with h_col1:
-    st.title("🚀 PerezBoost | Monitor")
+    st.title(f"🚀 PerezBoost {APP_VERSION} | Monitor")
 with h_col2:
     if st.button("Cerrar Sesión", key="btn_logout"):
         st.session_state["logout_solicitado"] = True
@@ -220,7 +225,7 @@ with h_col2:
         time.sleep(0.5)
         st.rerun()
 
-tab_reportes, tab_inventario, tab_ranking, tab_tracking, tab_binance = st.tabs(["📊 REPORTES", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING", "💰 BINANCE"])
+tab_reportes, tab_analytics, tab_inventario, tab_ranking, tab_tracking, tab_gestion, tab_binance = st.tabs(["📊 Reportes", "📈 Analytics", "📦 INVENTARIO", "🏆 TOP STAFF", "🔍 TRACKING", "🛠️ GESTIÓN", "💰 BINANCE"])
 
 # ==============================================================================
 # TAB 1: REPORTES
@@ -237,15 +242,17 @@ with tab_reportes:
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
     with f3:
         st.write("")
-        if st.button("🔄 Refrescar"):  st.cache_data.clear(), st.rerun()
-    query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado'"
+        if st.button("🔄 Refrescar"):  st.cache_data.clear(); st.rerun()
+
+    query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
     if mes_sel != "Todos":
         n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
-        query_base += f" AND CAST(fecha_inicio AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
+        query_base += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
-    query_base += " ORDER BY fecha_inicio ASC"
+    query_base += " ORDER BY fecha_fin_real DESC"
+    
     df_rep = run_query(query_base)
     
     if not df_rep.empty:
@@ -319,91 +326,212 @@ with tab_reportes:
                                             hole=.4,
                                             marker_colors=['#3498db', '#2ecc71', '#f1c40f'])])
             fig_pie.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width='stretch')
             
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
-            st.dataframe(df_mostrar, height=380, use_container_width=True)
-
-    st.divider()
-    st.subheader("🚨 Auditoría de Anomalías")
-    df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
-    if not df_audit.empty:
-        anomalias = []
-        for _, row in df_audit.iterrows():
-            wr = clean_num(row['wr'])
-            try: 
-                fecha_lim_dt = pd.to_datetime(row['fecha_limite']).date()
-                hoy_dt = datetime.now().date()
-                dias = (fecha_lim_dt - hoy_dt).days
-            except: 
-                dias = 99
-            
-            alerta_texto = ""
-            status_icono = ""
-            
-            if wr < 50 and wr > 0: 
-                alerta_texto = f"WR Bajo ({format_num(wr)}%)"
-                status_icono = "🔴"
-            if dias <= 1: 
-                alerta_texto = "RETRASO CRÍTICO" if not alerta_texto else f"{alerta_texto} & RETRASO"
-                status_icono = "🔴"
-            elif dias <= 3 and not status_icono: 
-                alerta_texto = "Vence pronto"
-                status_icono = "🟡"
-                
-            if alerta_texto:
-                anomalias.append({
-                    "Staff": row['booster_nombre'],
-                    "User:Pass": row.get('user_pass', 'N/A'),
-                    "Fecha Final": format_fecha_latam(row['fecha_limite']),
-                    "Estado": row['estado'],
-                    "Alerta": alerta_texto,
-                    "Status": status_icono
-                })
-                
-        if anomalias: 
-            df_anom = pd.DataFrame(anomalias)
-            df_anom.set_index("Staff", inplace=True) 
-            st.table(df_anom)
-        else: st.success("Sin anomalías operativas.")
+            st.dataframe(df_mostrar, height=380, width='stretch')
+    else:
+        st.info(f"No hay pedidos terminados para el mes de {mes_sel}.")
 
 # ==============================================================================
-# TAB 2: INVENTARIO
+# TAB 2: GITANALYTICS
+# ==============================================================================
+
+with tab_analytics:
+    st.subheader("🧠 GitAnalytics: Inteligencia de Negocio y Eficiencia")
+
+    f1, f2 = st.columns([2, 8])
+    meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    mes_actual_idx = datetime.now().month
+    with f1:
+        mes_sel_ana = st.selectbox("📅 Analizar Mes", meses_nombres, index=mes_actual_idx, key="mes_ana")
+    with f2:
+        st.write("")
+        if st.button("🔄 Refrescar Gráficas", key="btn_ref_ana"):
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+    query_bi = """
+        SELECT booster_nombre, wr, pago_cliente, pago_booster, fecha_inicio, fecha_fin_real 
+        FROM pedidos 
+        WHERE estado = 'Terminado' 
+        AND pago_realizado = 1 
+        AND fecha_fin_real IS NOT NULL
+    """
+
+    if mes_sel_ana != "Todos":
+        n_mes = str(meses_nombres.index(mes_sel_ana)).zfill(2)
+        query_bi += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
+
+    df_bi = run_query(query_bi)
+
+    if not df_bi.empty:
+
+        df_bi['wr'] = pd.to_numeric(df_bi['wr'], errors='coerce').fillna(0)
+        df_bi['pago_cliente'] = pd.to_numeric(df_bi['pago_cliente'], errors='coerce').fillna(0)
+        df_bi['pago_booster'] = pd.to_numeric(df_bi['pago_booster'], errors='coerce').fillna(0)
+        df_bi['valor_bote'] = df_bi['wr'].apply(lambda x: 2.0 if x >= 60 else 1.0)
+        df_bi['ganancia_empresa'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['valor_bote']
+        df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
+        df_bi['fecha_fin_dt'] = pd.to_datetime(df_bi['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
+        df_bi['dias_entrega'] = (df_bi['fecha_fin_dt'] - df_bi['fecha_inicio_dt']).dt.total_seconds() / (24 * 3600)
+        df_bi['dias_entrega'] = df_bi['dias_entrega'].apply(lambda x: max(x, 0.5) if pd.notnull(x) else 1.0)
+
+        df_staff = df_bi.groupby('booster_nombre').agg(
+            Total_Ganancia=('ganancia_empresa', 'sum'),
+            WR_Promedio=('wr', 'mean'),
+            Pedidos_Completados=('booster_nombre', 'count'),
+            Tiempo_Promedio=('dias_entrega', 'mean') 
+        ).reset_index()
+
+        df_staff['WR_Promedio'] = df_staff['WR_Promedio'].round(1)
+        df_staff['Tiempo_Promedio'] = df_staff['Tiempo_Promedio'].round(1)
+        df_grafica = df_bi.dropna(subset=['fecha_fin_dt']).copy()
+        df_grafica['fecha_corta'] = df_grafica['fecha_fin_dt'].dt.strftime('%Y-%m-%d')
+        df_tendencia = df_grafica.groupby('fecha_corta')['ganancia_empresa'].sum().reset_index()
+        df_tendencia = df_tendencia.sort_values('fecha_corta')
+        df_tendencia['Ganancia_Acumulada'] = df_tendencia['ganancia_empresa'].cumsum()
+
+        if mes_sel_ana in ["Todos", "Enero"]:
+            df_tendencia['Ganancia_Acumulada'] = df_tendencia['Ganancia_Acumulada'] + 5.0
+
+        # =======================================================
+        # 🏆 KPI GLOBALS
+        # =======================================================
+        
+        global_ganancia = df_bi['ganancia_empresa'].sum()
+
+        if mes_sel_ana in ["Todos", "Enero"]:
+            global_ganancia += 5.0
+        global_wr = df_bi['wr'].mean()
+        total_pedidos = len(df_bi)
+        global_tiempo = df_bi['dias_entrega'].mean()
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
+        kpi1.metric("💰 Ganancia Neta Real", f"${global_ganancia:,.2f} USD")
+        kpi2.metric("🎯 Win Rate Global", f"{global_wr:.1f}%")
+        kpi3.metric("📦 Pedidos Liquidados", f"{total_pedidos}")
+        kpi4.metric("⚡ Velocidad Media", f"{global_tiempo:.1f} Días")
+        
+        st.write("")
+
+        # =======================================================
+        # 📊 DIBUJANDO LAS GRÁFICAS OP
+        # =======================================================
+        
+        col_chart1, col_chart2 = st.columns(2)
+
+        with col_chart1:
+            st.markdown(f"**🎯 Matriz de Calidad y Valor ({mes_sel_ana})**")
+            st.caption("Solo se muestran pedidos pagados.")
+            
+            fig_scatter = px.scatter(
+                df_staff, 
+                x="WR_Promedio", 
+                y="Total_Ganancia", 
+                size="Pedidos_Completados", 
+                color="booster_nombre",
+                hover_name="booster_nombre",
+                hover_data={"Tiempo_Promedio": True},
+                labels={
+                    "WR_Promedio": "Win Rate Promedio (%)", 
+                    "Total_Ganancia": "Ganancia Neta ($)",
+                    "Pedidos_Completados": "Pedidos",
+                    "Tiempo_Promedio": "Días Promedio"
+                },
+                size_max=45,
+                template="plotly_dark"
+            )
+            fig_scatter.add_vline(x=60, line_dash="dash", line_color="#e74c3c", annotation_text="Meta WR")
+            fig_scatter.update_layout(showlegend=False, margin=dict(l=0, r=20, t=30, b=0), height=380)
+            st.plotly_chart(fig_scatter, width='stretch')
+
+        with col_chart2:
+            st.markdown(f"**📈 Run-Rate: Flujo de Caja Real ({mes_sel_ana})**")
+            st.caption("Curva de dinero líquido acumulado.")
+            
+            fig_area = px.area(
+                df_tendencia, 
+                x="fecha_corta", 
+                y="Ganancia_Acumulada",
+                markers=True,
+                labels={
+                    "fecha_corta": "Fecha", 
+                    "Ganancia_Acumulada": "Acumulado ($)"
+                },
+                template="plotly_dark",
+                color_discrete_sequence=['#2ecc71'] 
+            )
+            fig_area.update_layout(margin=dict(l=0, r=20, t=30, b=0), height=380)
+            st.plotly_chart(fig_area, width='stretch')
+
+        st.divider()
+        st.markdown(f"**🏎️ Ranking de Velocidad Operativa ({mes_sel_ana})**")
+        st.caption("Días promedio por entrega (Solo pedidos pagados).")
+
+        df_staff_sorted = df_staff.sort_values('Tiempo_Promedio', ascending=False)
+        
+        fig_bar = px.bar(
+            df_staff_sorted, 
+            x='Tiempo_Promedio', 
+            y='booster_nombre', 
+            orientation='h',
+            text='Tiempo_Promedio',
+            color='Tiempo_Promedio',
+            color_continuous_scale="RdYlGn_r",
+            labels={
+                "Tiempo_Promedio": "Días Promedio por Entrega",
+                "booster_nombre": "Staff"
+            },
+            template="plotly_dark"
+        )
+        fig_bar.update_traces(texttemplate='%{text} Días', textposition='outside')
+        fig_bar.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=40, t=10, b=0), height=150 + (len(df_staff) * 30))
+        st.plotly_chart(fig_bar, width='stretch')
+
+    else:
+        st.info(f"Aún no hay pedidos **PAGADOS** registrados en {mes_sel_ana} para generar métricas financieras.")
+        
+# ==============================================================================
+# TAB 3: INVENTARIO
 # ==============================================================================
 
 with tab_inventario:
-    st.subheader("📦 Cuentas Disponibles")
-    df_inv = run_query("SELECT id, user_pass, elo_tipo, descripcion FROM inventario WHERE descripcion NOT ILIKE '%VENDIDA%' AND descripcion NOT ILIKE '%USADA%' AND descripcion NOT ILIKE '%OCUPADA%'")
-    
-    if df_inv.empty:
-        st.warning("No hay cuentas.")
+    c1, c2 = st.columns([8, 1])
+    with c1:
+        st.subheader("📦 Inventario de Cuentas")
+    with c2:
+        if st.button("🔄 Refrescar", key="btn_refresh_inv"): 
+            st.cache_data.clear()
+            st.rerun()
+    df_inv = run_query("SELECT id, user_pass, elo_tipo, descripcion FROM inventario ORDER BY elo_tipo")
+    if not df_inv.empty:
+        elos_disponibles = sorted(df_inv['elo_tipo'].dropna().unique().tolist())
+        opciones_filtro = ["Todos"] + elos_disponibles
+        col_filtro, col_vacia = st.columns([1, 2])
+        with col_filtro:
+            filtro_elo = st.selectbox("🎯 Filtrar por Rango/ELO:", opciones_filtro)
+        if filtro_elo != "Todos":
+            df_mostrar = df_inv[df_inv['elo_tipo'] == filtro_elo].copy()
+        else:
+            df_mostrar = df_inv.copy()
+        if not df_mostrar.empty:
+            df_mostrar['id_visual'] = range(1, len(df_mostrar) + 1)
+            df_tabla = df_mostrar[['id_visual', 'elo_tipo', 'user_pass', 'descripcion']]
+            df_tabla.columns = ["Nº", "Rango", "Cuenta (User:Pass)", "Detalle"]
+            st.dataframe(df_tabla, width='stretch', hide_index=True)
+            st.caption(f"Mostrando {len(df_tabla)} cuentas de {filtro_elo}")
+        else:
+            st.warning(f"No se encontraron cuentas para el rango {filtro_elo}.")
     else:
-        h1, h2, h3 = st.columns([1, 2, 2])
-        h1.markdown("<div style='text-align: center;'><b>Rango</b></div>", unsafe_allow_html=True)
-        h2.markdown("<div style='text-align: center;'><b>Usuario:Pass (Toca para copiar)</b></div>", unsafe_allow_html=True)
-        h3.markdown("<div style='text-align: center;'><b>Nota</b></div>", unsafe_allow_html=True)
-        st.divider()
-
-        for _, acc in df_inv.iterrows():
-            c1, c2, c3 = st.columns([1, 2, 2])
-            
-            with c1:
-                st.markdown(f"<div style='text-align: center; margin-top: 10px;'>{acc['elo_tipo']}</div>", unsafe_allow_html=True)
-            
-            with c2:
-                _, sub_centro, _ = st.columns([1, 4, 1])
-                with sub_centro:
-                    st.code(acc['user_pass'], language="text")
-                
-            with c3:
-                st.markdown(f"<div style='text-align: center; margin-top: 10px;'>{acc['descripcion']}</div>", unsafe_allow_html=True)
-                
-            st.markdown("<hr style='margin:0; border-color:#333'>", unsafe_allow_html=True)
+        st.success("✅ El inventario está vacío. No hay cuentas pendientes.")
 
 # ==============================================================================
-# TAB 3: TOP STAFF
+# TAB 4: TOP STAFF
 # ==============================================================================
 
 with tab_ranking:
@@ -448,12 +576,12 @@ with tab_ranking:
         fig_bar = px.bar(df_ranking.sort_values(by="Score_Val", ascending=False), 
                          x='Staff', y='Score_Val', color='Score_Val', 
                          template="plotly_dark", text_auto='.1f', labels={'Score_Val': 'Score'})
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width='stretch')
     else:
         st.info("Sin datos este mes.")
         
 # ==============================================================================
-# TAB 4: TRACKING (OP.GG y Cuentas Activas)
+# TAB 5: TRACKING (OP.GG y Cuentas Activas)
 # ==============================================================================
 
 with tab_tracking:
@@ -461,38 +589,39 @@ with tab_tracking:
     with c1:
         st.subheader("🔍 Tracking Operativo")
     with c2:
-        if st.button("🔄 Refrescar", key="btn_refresh_track"): st.cache_data.clear(),st.rerun()
-        
-    st.info("💡 Monitorea las cuentas activas y edita los enlaces si el staff cometió un error.")
-    
+        if st.button("🔄 Refrescar", key="btn_refresh_track"): 
+            st.cache_data.clear()
+            st.rerun()
+
     query_activos = "SELECT id, booster_nombre, user_pass, opgg, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado') ORDER BY id DESC"
     df_activos = run_query(query_activos)
-    
+
     if df_activos.empty:
         st.success("✅ No hay pedidos activos en este momento.")
     else:
         tracking_data = []
         lista_ids_activos = []
-        
+        opciones_selector = []
         for i, row in enumerate(df_activos.itertuples(), 1):
             link_val = row.opgg if pd.notna(row.opgg) and str(row.opgg).strip() != "" else None
+
             lista_ids_activos.append(row.id)
-            
+
             tracking_data.append({
-                "#": i,
-                "Pedido": f"#{row.id}",
+                "Nº": i,
                 "Staff": row.booster_nombre,
                 "Cuenta (User:Pass)": row.user_pass,
                 "Link OP.GG": link_val,
                 "Estado": row.estado
             })
+            opciones_selector.append(f"{i} | Staff: {row.booster_nombre} | Cuenta: {row.user_pass}")
             
         df_track = pd.DataFrame(tracking_data)
-        df_track.set_index("#", inplace=True)
 
         st.dataframe(
             df_track, 
-            use_container_width=True, 
+            width='stretch',
+            hide_index=True,
             column_config={
                 "Link OP.GG": st.column_config.LinkColumn(
                     "Link OP.GG", 
@@ -505,33 +634,139 @@ with tab_tracking:
         st.divider()
 
         st.subheader("🛠️ Gestión de Enlaces (Corrección de Errores)")
-        st.write("Selecciona el pedido para corregir el link. **Para eliminarlo, simplemente deja la caja en blanco y guarda.**")
+        st.write("Selecciona el pedido en la lista para corregir el link. **Para eliminarlo, simplemente deja la caja en blanco y guarda.**")
         
         with st.form("form_editar_opgg"):
-            col1, col2 = st.columns([1, 3])
+            col1, col2 = st.columns([1, 2])
             with col1:
-                pedido_sel = st.selectbox("ID del Pedido:", options=lista_ids_activos)
+                pedido_visual_sel = st.selectbox("Selecciona el Pedido:", options=opciones_selector)
             with col2:
                 nuevo_link = st.text_input("Nuevo Link OP.GG:", placeholder="https://...")
             
             submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace")
             
             if submit_edit:
+                idx_seleccionado = opciones_selector.index(pedido_visual_sel)
+                real_id_a_editar = lista_ids_activos[idx_seleccionado]
+                
                 conn = get_connection()
                 if conn:
                     try:
                         link_final = nuevo_link.strip() if nuevo_link.strip() != "" else None
                         
                         with conn.cursor() as cur:
-                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (link_final, pedido_sel))
+                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (link_final, real_id_a_editar))
                             conn.commit()
-                        st.success(f"✅ ¡Operación exitosa en el Pedido #{pedido_sel}! Haz clic en '🔄 Refrescar' arriba para ver los cambios.")
+
+                        st.cache_data.clear()
+                        st.success(f"✅ ¡Operación exitosa en el pedido seleccionado! Refrescando...")
+                        time.sleep(1)
+                        st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al actualizar la base de datos: {e}")
                     finally:
                         conn.close()
                 else:
-                    st.error("❌ Error de conexión a la nube.") 
+                    st.error("❌ Error de conexión a la nube.")
+                    
+    st.divider()
+    st.subheader("🚨 Auditoría de Anomalías")
+    df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
+    if not df_audit.empty:
+        anomalias = []
+        for _, row in df_audit.iterrows():
+            wr = clean_num(row['wr'])
+            try: 
+                fecha_lim_dt = pd.to_datetime(row['fecha_limite']).date()
+                hoy_dt = datetime.now().date()
+                dias = (fecha_lim_dt - hoy_dt).days
+            except: 
+                dias = 99
+            
+            alerta_texto = ""
+            status_icono = ""
+            
+            if wr < 50 and wr > 0: 
+                alerta_texto = f"WR Bajo ({format_num(wr)}%)"
+                status_icono = "🔴"
+            if dias <= 1: 
+                alerta_texto = "RETRASO CRÍTICO" if not alerta_texto else f"{alerta_texto} & RETRASO"
+                status_icono = "🔴"
+            elif dias <= 3 and not status_icono: 
+                alerta_texto = "Vence pronto"
+                status_icono = "🟡"
+                
+            if alerta_texto:
+                anomalias.append({
+                    "Staff": row['booster_nombre'],
+                    "User:Pass": row.get('user_pass', 'N/A'),
+                    "Fecha Final": format_fecha_latam(row['fecha_limite']),
+                    "Estado": row['estado'],
+                    "Alerta": alerta_texto,
+                    "Status": status_icono
+                })
+                
+        if anomalias: 
+            df_anom = pd.DataFrame(anomalias)
+            df_anom.set_index("Staff", inplace=True) 
+            st.table(df_anom)
+        else: st.success("Sin anomalías operativas.")
+        
+# ==============================================================================
+# TAB 7: Gestion Financiera
+# ==============================================================================
+
+with tab_gestion:
+    st.subheader("💸 Liquidaciones Pendientes")
+    
+    query_pendientes = """
+        SELECT id, booster_nombre, user_pass, elo_final, wr, pago_cliente, pago_booster, pago_realizado, fecha_fin_real
+        FROM pedidos
+        WHERE estado = 'Terminado'
+        AND (pago_realizado = 0 OR pago_realizado IS NULL)
+        ORDER BY fecha_fin_real ASC
+    """
+    df_pendientes = run_query(query_pendientes)
+
+    if not df_pendientes.empty:
+        st.info(f"Tienes **{len(df_pendientes)}** liquidaciones por procesar.")
+        
+        for index, row in df_pendientes.iterrows():
+            titulo_expander = f"🔴 Pendiente: {row['booster_nombre']} ｜ Cuenta: {row['user_pass']}"
+            
+            with st.expander(titulo_expander):
+                with st.form(key=f"form_pay_lock_{row['id']}"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.text_input("Staff", value=row['booster_nombre'], disabled=True)
+                    c2.text_input("Elo Final", value=row['elo_final'], disabled=True)
+                    c3.number_input("Win Rate %", value=float(clean_num(row['wr'])), disabled=True)
+                    
+                    c4, c5, c6 = st.columns(3)
+                    c4.number_input("Cobro Cliente $", value=float(clean_num(row['pago_cliente'])), disabled=True)
+                    c5.number_input("Pago Staff $", value=float(clean_num(row['pago_booster'])), disabled=True)
+                    marcar_pagado = c6.checkbox("CONFIRMAR PAGO", value=False, 
+                                                help="Al confirmar, este pedido se sumará a tus métricas financieras.")
+                    if st.form_submit_button("🚀 Sincronizar Pago", width='stretch', type="primary"):
+                        if marcar_pagado:
+                            conn = get_connection()
+                            if conn:
+                                try:
+                                    with conn.cursor() as cur:
+                                        sql_pay = "UPDATE pedidos SET pago_realizado = 1 WHERE id = %s"
+                                        cur.execute(sql_pay, (int(row['id']),))
+                                        conn.commit()
+                                    st.success(f"✅ ¡Pago registrado! {row['booster_nombre']} liquidado.")
+                                    time.sleep(1)
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error en DB: {e}")
+                                finally:
+                                    conn.close()
+                        else:
+                            st.warning("Debes marcar el check de 'Confirmar Pago' antes de sincronizar.")
+    else:
+        st.success("✨ ¡Todo al día! No tienes pagos pendientes por ahora.")
 
 # ==============================================================================
 # VENTANAS EMERGENTES PARA BINANCE
@@ -548,7 +783,7 @@ def modal_editar_transaccion(fila):
         e_monto = st.number_input("Monto ($):", min_value=0.01, step=1.00, value=float(fila['monto']), format="%.2f")
         e_desc = st.text_input("Descripción:", value=fila['descripcion'])
 
-        guardar = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+        guardar = st.form_submit_button("💾 Guardar Cambios", type="primary", width='stretch')
         
         if guardar:
             conn = get_connection()
@@ -569,7 +804,7 @@ def modal_eliminar_transaccion(id_real, detalle):
     st.write(f"**{detalle}**")
     st.write("Esta acción recalculará tu Binance y no se puede deshacer.")
     
-    if st.button("🗑️ Sí, Eliminar Definitivamente", type="primary", use_container_width=True):
+    if st.button("🗑️ Sí, Eliminar Definitivamente", type="primary", width='stretch'):
         conn = get_connection()
         if conn:
             try:
@@ -582,13 +817,13 @@ def modal_eliminar_transaccion(id_real, detalle):
             finally: conn.close()
 
 # ==============================================================================
-# TAB 5: BINANCE
+# TAB 7: BINANCE
 # ==============================================================================
 
 with tab_binance:
     st.subheader("🏦 Binance Wallet")
 
-    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr FROM pedidos WHERE estado = 'Terminado'")
+    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
     neto_historico = 0.0
     bote_historico = 0.0
     
@@ -707,7 +942,7 @@ with tab_binance:
                 df_final = df_filtrado[['id_visual', 'fecha_str', 'tipo', 'categoria', 'monto_str', 'descripcion']]
                 df_final.columns = ["Nº", "Fecha", "Tipo", "Caja", "Monto", "Detalle"]
 
-                st.dataframe(df_final, use_container_width=True, hide_index=True)
+                st.dataframe(df_final, width='stretch', hide_index=True)
                 st.divider()
                 st.markdown("### ⚙️ Gestionar Registro")
                 opciones_crud = df_filtrado.apply(lambda r: f"Nº {r['id_visual']} | {r['tipo']} | {r['monto_str']} | {r['descripcion']} (ID:{r['id']})", axis=1).tolist()
@@ -715,17 +950,17 @@ with tab_binance:
                 c_btn1, c_btn2, c_btn3 = st.columns(3)
                 
                 with c_btn1:
-                    if st.button("✏️ Editar", use_container_width=True):
+                    if st.button("✏️ Editar", width='stretch'):
                         id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
                         fila_sel = df_wallet[df_wallet['id'] == id_real].iloc[0]
                         modal_editar_transaccion(fila_sel)
                         
                 with c_btn2:
-                    if st.button("🗑️ Eliminar", use_container_width=True):
+                    if st.button("🗑️ Eliminar", width='stretch'):
                         id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
                         detalle_mostrar = seleccion.split("(ID:")[0].strip()
                         modal_eliminar_transaccion(id_real, detalle_mostrar)
                         
                 with c_btn3:
-                    if st.button("🔄 Refresh", use_container_width=True):
+                    if st.button("🔄 Refresh", width='stretch'):
                         st.cache_data.clear(), st.rerun()
