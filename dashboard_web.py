@@ -535,53 +535,109 @@ with tab_inventario:
 # ==============================================================================
 
 with tab_ranking:
-    st.subheader("🏆 Ranking Mensual de Eficiencia")
+    st.subheader("🏆 Hall of Fame: Valor y Eficiencia")
     
     mes_actual = datetime.now().strftime("%Y-%m")
-    df_month = run_query(f"SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real FROM pedidos WHERE estado = 'Terminado' AND CAST(fecha_fin_real AS TEXT) LIKE '{mes_actual}%'")
+
+    query_rank = f"""
+        SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster 
+        FROM pedidos 
+        WHERE estado = 'Terminado' AND pago_realizado = 1 
+        AND CAST(fecha_fin_real AS TEXT) LIKE '{mes_actual}%'
+    """
+    df_month = run_query(query_rank)
 
     if not df_month.empty:
-        stats = []
-        for staff in df_month['booster_nombre'].unique():
-            df_b = df_month[df_month['booster_nombre'] == staff]
-            dias_lista = [max((pd.to_datetime(r.fecha_fin_real) - pd.to_datetime(r.fecha_inicio)).days, 1) for r in df_b.itertuples() if r.fecha_fin_real and r.fecha_inicio]
-            
-            avg_dias = sum(dias_lista) / len(dias_lista) if dias_lista else 0
-            avg_wr = df_b['wr'].astype(float).mean()
-            stats.append({
-                "Staff": staff, 
-                "WR": f"{format_num(avg_wr)}%", 
-                "Días_Num": avg_dias, 
-                "Días": format_num(avg_dias), 
-                "Score_Val": avg_wr / (avg_dias if avg_dias > 0 else 1)
-            })
-        
-        df_ranking = pd.DataFrame(stats)
-        
+        df_month['wr'] = pd.to_numeric(df_month['wr'], errors='coerce').fillna(0)
+        df_month['pago_cliente'] = pd.to_numeric(df_month['pago_cliente'], errors='coerce').fillna(0)
+        df_month['pago_booster'] = pd.to_numeric(df_month['pago_booster'], errors='coerce').fillna(0)
+        df_month['bote'] = df_month['wr'].apply(lambda x: 2.0 if x >= 60 else 1.0)
+        df_month['neto'] = df_month['pago_cliente'] - df_month['pago_booster'] - df_month['bote']
+        df_month['f_ini'] = pd.to_datetime(df_month['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
+        df_month['f_fin'] = pd.to_datetime(df_month['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
+        df_month['dias'] = (df_month['f_fin'] - df_month['f_ini']).dt.days.apply(lambda x: max(x, 1) if pd.notnull(x) else 1)
+        df_grouped = df_month.groupby('booster_nombre').agg(
+            Pedidos=('booster_nombre', 'count'),
+            Total_Neto=('neto', 'sum'),
+            Total_Dias=('dias', 'sum'),
+            Promedio_Dias=('dias', 'mean'),
+            WR_Promedio=('wr', 'mean')
+        ).reset_index()
+
+        df_grouped['USD_por_Dia'] = df_grouped['Total_Neto'] / df_grouped['Total_Dias']
+        df_grouped['WR_Promedio'] = df_grouped['WR_Promedio'].round(1)
+        df_grouped['Promedio_Dias'] = df_grouped['Promedio_Dias'].round(1)
+        df_grouped['USD_por_Dia'] = df_grouped['USD_por_Dia'].round(2)
+        df_grouped['Total_Neto'] = df_grouped['Total_Neto'].round(2)
+
         c1, c2 = st.columns(2)
+        
         with c1:
-            st.success("⚡ **Más Rápidos**")
-            df_rapidos = df_ranking.sort_values(by="Días_Num", ascending=True)[['Staff', 'Días', 'WR']].head(3)
-            df_rapidos.set_index("Staff", inplace=True) 
-            st.table(df_rapidos)
+            st.success("💎 **Most Valuable Players (Más Ganancia Total)**")
+            st.caption("Quienes más dinero han traído a la caja este mes.")
+
+            df_mvp = df_grouped.sort_values(by="Total_Neto", ascending=False)[['booster_nombre', 'Total_Neto', 'Pedidos']].head(3).copy()
+            df_mvp['Total_Neto'] = df_mvp['Total_Neto'].apply(lambda x: f"${x:.1f}")
+            df_mvp.columns = ["Staff", "Mi Neto", "Pedidos"]
+            df_mvp.set_index("Staff", inplace=True) 
+            st.table(df_mvp)
             
         with c2:
-            st.error("🐢 **Más Lentos**")
-            df_lentos = df_ranking.sort_values(by="Días_Num", ascending=False)[['Staff', 'Días', 'WR']].head(3)
-            df_lentos.set_index("Staff", inplace=True) 
-            st.table(df_lentos)
+            st.info("⚡ **Top Eficiencia Pura (Mayor $/Día)**")
+            st.caption("Ganan más dinero en menos tiempo (Alta rentabilidad).")
+
+            df_efi = df_grouped.sort_values(by="USD_por_Dia", ascending=False)[['booster_nombre', 'USD_por_Dia', 'WR_Promedio']].head(3).copy()
+            df_efi['USD_por_Dia'] = df_efi['USD_por_Dia'].apply(lambda x: f"${x:.1f}/Día")
+            df_efi['WR_Promedio'] = df_efi['WR_Promedio'].apply(lambda x: f"{x:.1f}%")
+            df_efi.columns = ["Staff", "Genera", "WR"]
+            df_efi.set_index("Staff", inplace=True) 
+            st.table(df_efi)
         
         st.divider()
-        st.write("📊 **Score de Eficiencia Global**")
-        fig_bar = px.bar(df_ranking.sort_values(by="Score_Val", ascending=False), 
-                         x='Staff', y='Score_Val', color='Score_Val', 
-                         template="plotly_dark", text_auto='.1f', labels={'Score_Val': 'Score'})
-        st.plotly_chart(fig_bar, width='stretch')
+        
+        st.write("📊 **Matriz de Rendimiento: Valor vs Tiempo**")
+        fig_scatter = px.scatter(
+            df_grouped, 
+            x='Promedio_Dias', 
+            y='Total_Neto', 
+            size='USD_por_Dia', 
+            color='booster_nombre',
+            hover_name='booster_nombre',
+            hover_data={'Pedidos': True, 'WR_Promedio': True},
+            labels={
+                "Promedio_Dias": "Tiempo Promedio por Pedido (Días)", 
+                "Total_Neto": "Ganancia Neta Generada ($)",
+                "USD_por_Dia": "Eficiencia ($/Día)",
+                "booster_nombre": "Staff"
+            },
+            template="plotly_dark",
+            size_max=40
+        )
+
+        fig_scatter.update_xaxes(autorange="reversed")
+        st.plotly_chart(fig_scatter, width='stretch')
+        
+        st.write("📋 **Desglose Completo de Staff**")
+        df_mostrar = df_grouped[["booster_nombre", "Total_Neto", "USD_por_Dia", "Pedidos", "Promedio_Dias", "WR_Promedio"]].sort_values(by="USD_por_Dia", ascending=False)
+        st.dataframe(
+            df_mostrar, 
+            width='stretch', 
+            hide_index=True,
+            column_config={
+                "booster_nombre": "Staff",
+                "Total_Neto": st.column_config.NumberColumn("Ganancia Total", format="$%.2f"),
+                "USD_por_Dia": st.column_config.NumberColumn("Eficiencia ($/Día)", format="$%.2f"),
+                "Pedidos": "Nº Pedidos",
+                "Promedio_Dias": "Días/Pedido",
+                "WR_Promedio": st.column_config.NumberColumn("WR Promedio", format="%.1f%%")
+            }
+        )
+
     else:
-        st.info("Sin datos este mes.")
+        st.info("No hay datos de rentabilidad para este mes aún.")
         
 # ==============================================================================
-# TAB 5: TRACKING (OP.GG y Cuentas Activas)
+# TAB 5: TRACKING
 # ==============================================================================
 
 with tab_tracking:
@@ -593,7 +649,12 @@ with tab_tracking:
             st.cache_data.clear()
             st.rerun()
 
-    query_activos = "SELECT id, booster_nombre, user_pass, opgg, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado') ORDER BY id DESC"
+    query_activos = """
+        SELECT id, booster_nombre, elo_inicial, user_pass, opgg, estado 
+        FROM pedidos 
+        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado') 
+        ORDER BY id DESC
+    """
     df_activos = run_query(query_activos)
 
     if df_activos.empty:
@@ -604,12 +665,12 @@ with tab_tracking:
         opciones_selector = []
         for i, row in enumerate(df_activos.itertuples(), 1):
             link_val = row.opgg if pd.notna(row.opgg) and str(row.opgg).strip() != "" else None
-
             lista_ids_activos.append(row.id)
 
             tracking_data.append({
                 "Nº": i,
                 "Staff": row.booster_nombre,
+                "Elo": row.elo_inicial,
                 "Cuenta (User:Pass)": row.user_pass,
                 "Link OP.GG": link_val,
                 "Estado": row.estado
@@ -634,7 +695,7 @@ with tab_tracking:
         st.divider()
 
         st.subheader("🛠️ Gestión de Enlaces (Corrección de Errores)")
-        st.write("Selecciona el pedido en la lista para corregir el link. **Para eliminarlo, simplemente deja la caja en blanco y guarda.**")
+        st.write("Selecciona el pedido en la lista para corregir el link. **Para eliminarlo, deja la caja en blanco y guarda.**")
         
         with st.form("form_editar_opgg"):
             col1, col2 = st.columns([1, 2])
@@ -643,7 +704,7 @@ with tab_tracking:
             with col2:
                 nuevo_link = st.text_input("Nuevo Link OP.GG:", placeholder="https://...")
             
-            submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace")
+            submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace", width='stretch', type="primary")
             
             if submit_edit:
                 idx_seleccionado = opciones_selector.index(pedido_visual_sel)
@@ -653,17 +714,16 @@ with tab_tracking:
                 if conn:
                     try:
                         link_final = nuevo_link.strip() if nuevo_link.strip() != "" else None
-                        
                         with conn.cursor() as cur:
                             cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (link_final, real_id_a_editar))
                             conn.commit()
 
                         st.cache_data.clear()
-                        st.success(f"✅ ¡Operación exitosa en el pedido seleccionado! Refrescando...")
+                        st.success(f"✅ ¡Operación exitosa! Refrescando...")
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al actualizar la base de datos: {e}")
+                        st.error(f"❌ Error al actualizar DB: {e}")
                     finally:
                         conn.close()
                 else:
@@ -671,7 +731,14 @@ with tab_tracking:
                     
     st.divider()
     st.subheader("🚨 Auditoría de Anomalías")
-    df_audit = run_query("SELECT booster_nombre, user_pass, fecha_limite, wr, estado FROM pedidos WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')")
+
+    query_audit = """
+        SELECT booster_nombre, elo_inicial, user_pass, opgg, fecha_limite, wr, estado 
+        FROM pedidos 
+        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')
+    """
+    df_audit = run_query(query_audit)
+    
     if not df_audit.empty:
         anomalias = []
         for _, row in df_audit.iterrows():
@@ -697,9 +764,13 @@ with tab_tracking:
                 status_icono = "🟡"
                 
             if alerta_texto:
+                link_audit = row.get('opgg') if pd.notna(row.get('opgg')) and str(row.get('opgg')).strip() != "" else None
+
                 anomalias.append({
                     "Staff": row['booster_nombre'],
+                    "Elo": row.get('elo_inicial', 'N/A'),
                     "User:Pass": row.get('user_pass', 'N/A'),
+                    "OP.GG": link_audit,
                     "Fecha Final": format_fecha_latam(row['fecha_limite']),
                     "Estado": row['estado'],
                     "Alerta": alerta_texto,
@@ -708,9 +779,24 @@ with tab_tracking:
                 
         if anomalias: 
             df_anom = pd.DataFrame(anomalias)
-            df_anom.set_index("Staff", inplace=True) 
-            st.table(df_anom)
-        else: st.success("Sin anomalías operativas.")
+            df_anom = df_anom[["Staff", "Elo", "User:Pass", "OP.GG", "Fecha Final", "Estado", "Alerta", "Status"]]
+            st.dataframe(
+                df_anom,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    "Staff": st.column_config.TextColumn("Staff", width="medium"),
+                    "Elo": st.column_config.TextColumn("Elo", width="small"),
+                    "User:Pass": st.column_config.TextColumn("Cuenta", width="medium"),
+                    "OP.GG": st.column_config.LinkColumn("OP.GG", display_text="🔗 Revisar", width="small"),
+                    "Fecha Final": st.column_config.TextColumn("Fecha Final", width="small"),
+                    "Estado": st.column_config.TextColumn("Estado", width="small"),
+                    "Alerta": st.column_config.TextColumn("Alerta", width="medium"),
+                    "Status": st.column_config.TextColumn("Status", width="small")
+                }
+            )
+        else: 
+            st.success("✨ Excelente. Sin anomalías operativas en curso.")
         
 # ==============================================================================
 # TAB 7: Gestion Financiera

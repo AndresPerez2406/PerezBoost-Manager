@@ -31,7 +31,7 @@ class DiscordNotifier:
             "description": str(descripcion),
             "color": color,
             "footer": {
-                "text": f"PerezBoost Manager {self.version}) • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                "text": f"PerezBoost Manager {self.version} • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                 "icon_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png"
             },
             "timestamp": datetime.utcnow().isoformat()
