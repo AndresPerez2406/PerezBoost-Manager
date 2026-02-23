@@ -81,133 +81,78 @@ def run_query(query):
 # ==============================================================================
 # 🎮 MODO QUIOSCO (PUBLIC-FACING LEADERBOARD - METALLIC DARK EDITION)
 # ==============================================================================
+
 def render_public_ranking():
-    # 1. CSS EXTREMO: Podio Legendario + Banner Jerarquía Máxima
+
     st.markdown("""
         <style>
             [data-testid="collapsedControl"] {display: none !important;}
             [data-testid="stSidebar"] {display: none !important;}
             .stApp { background-color: #0a0a0a; }
-            
-            /* Banner del Bote Acumulado */
             .prize-banner {
                 background: linear-gradient(135deg, #111111, #1a251f, #1a4a2e);
-                color: white;
-                text-align: center;
-                padding: 50px 20px;
-                border-radius: 15px;
-                margin: 10px 0 40px 0;
-                box-shadow: 0 10px 50px rgba(46, 204, 113, 0.4);
-                border: 2px solid #2ecc71;
+                color: white; text-align: center; padding: 50px 20px;
+                border-radius: 15px; margin: 10px 0 40px 0;
+                box-shadow: 0 10px 50px rgba(46, 204, 113, 0.4); border: 2px solid #2ecc71;
             }
-            .prize-title { 
-                margin: 0 !important; 
-                font-size: 55px !important; 
-                color: #ffffff !important; 
-                font-weight: 900 !important; 
-                letter-spacing: 5px !important; 
-                text-transform: uppercase !important;
-                text-shadow: 0 4px 10px rgba(0,0,0,0.9) !important;
-                line-height: 1.1 !important;
-            }
-            .prize-amount { 
-                font-size: 115px !important; 
-                font-weight: 900 !important; 
-                color: #2ecc71 !important;
-                text-shadow: 0 0 35px rgba(46, 204, 113, 0.6) !important;
-                margin: 10px 0 25px 0 !important; 
-                line-height: 1 !important;
-            }
-            .prize-breakdown { 
-                font-size: 22px !important; 
-                color: #ffffff !important; 
-                font-weight: 800 !important; 
-                text-shadow: 0 2px 4px rgba(0,0,0,0.8) !important;
-            }
+            .prize-title { margin: 0 !important; font-size: 55px !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 5px !important; text-transform: uppercase !important; text-shadow: 0 4px 10px rgba(0,0,0,0.9) !important; line-height: 1.1 !important; }
+            .prize-amount { font-size: 115px !important; font-weight: 900 !important; color: #2ecc71 !important; text-shadow: 0 0 35px rgba(46, 204, 113, 0.6) !important; margin: 10px 0 25px 0 !important; line-height: 1 !important; }
+            .prize-breakdown { font-size: 22px !important; color: #ffffff !important; font-weight: 800 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.8) !important; }
             .prize-breakdown span { color: #888888; font-weight: bold; }
-            
-            /* PANEL DE ESTADÍSTICAS GLOBALES UNIFICADO */
-            .global-stats-panel {
-                display: flex;
-                background: linear-gradient(145deg, #151515, #2d2d2d, #1a1a1a);
-                border: 2px solid #444;
-                border-top: 2px solid #777;
-                border-radius: 15px;
-                box-shadow: 0 12px 25px rgba(0,0,0,0.8);
-                margin-bottom: 45px;
-            }
+            .global-stats-panel { display: flex; background: linear-gradient(145deg, #151515, #2d2d2d, #1a1a1a); border: 2px solid #444; border-top: 2px solid #777; border-radius: 15px; box-shadow: 0 12px 25px rgba(0,0,0,0.8); margin-bottom: 45px; }
             .stat-segment { flex: 1; padding: 30px 10px; text-align: center; }
             .stat-segment:not(:last-child) { border-right: 2px solid #333; }
             .stat-title { color: #c4c4c4; margin: 0; font-size: 18px; text-transform: uppercase; font-weight: 900; letter-spacing: 3px;}
             .stat-value { font-size: 50px; font-weight: 900; margin: 15px 0 0 0; text-shadow: 0 5px 15px rgba(0,0,0,0.8); line-height: 1; }
-            
-            /* --- EL PODIO COOL ESTÁ DE VUELTA --- */
-            .rank-card {
-                background: linear-gradient(145deg, #141414, #252525);
-                padding: 25px 20px;
-                border-radius: 12px;
-                text-align: center;
-                box-shadow: 0 8px 25px rgba(0,0,0,0.8);
-                border: 1px solid #333;
-                border-top: 1px solid #555;
-                transition: transform 0.3s, border-color 0.3s;
-            }
+            .rank-card { background: linear-gradient(145deg, #141414, #252525); padding: 25px 20px; border-radius: 12px; text-align: center; box-shadow: 0 8px 25px rgba(0,0,0,0.8); border: 1px solid #333; border-top: 1px solid #555; transition: transform 0.3s, border-color 0.3s; }
             .rank-card:hover { transform: translateY(-5px); border-color: #777; }
             .rank-1 { border-top: 6px solid #f1c40f; box-shadow: 0 0 30px rgba(241, 196, 15, 0.2); margin-top: 0px; }
             .rank-2 { border-top: 6px solid #bdc3c7; margin-top: 30px; }
             .rank-3 { border-top: 6px solid #cd7f32; margin-top: 30px; }
-            
             .rank-icon { font-size: 55px; margin-bottom: 15px; filter: drop-shadow(0px 4px 5px rgba(0,0,0,0.5));}
             .rank-name { font-size: 24px; font-weight: 900; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 2px 4px rgba(0,0,0,0.8);}
             .rank-pts { font-size: 28px; color: #2ecc71; font-weight: 900; margin: 12px 0 0 0; }
             .rank-label { color: #888; font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;}
-
-            /* Tabla eSports */
-            .esports-table {
-                width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 17px;
-                background: #121212; border-radius: 12px; overflow: hidden; border: 1px solid #333;
-            }
+            .esports-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 17px; background: #121212; border-radius: 12px; overflow: hidden; border: 1px solid #333; }
             .esports-table thead tr { background: #1a1a1a; color: #e0e0e0; text-transform: uppercase; font-weight: 900; border-bottom: 2px solid #444; }
             .esports-table th, .esports-table td { padding: 18px 15px; border-bottom: 1px solid #252525; text-align: center; }
             .col-staff { font-weight: 900; color: #ffffff; text-align: left !important; padding-left: 20px !important; }
-            
             .dev-footer { text-align: center; color: #444; font-size: 13px; margin-top: 70px; font-family: monospace; letter-spacing: 3px; }
         </style>
     """, unsafe_allow_html=True)
 
     mes_actual = datetime.now().strftime("%Y-%m")
-    import locale
-    try: locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8') 
-    except: pass
     nombre_mes = datetime.now().strftime("%B").upper()
 
-    st.markdown("""
+    st.markdown(f"""
         <div style='text-align: center; margin-top: 20px; margin-bottom: 10px;'>
             <h1 style='color: white; font-size: 100px !important; font-weight: 950; text-transform: uppercase; letter-spacing: 15px; text-shadow: 0 0 30px rgba(255,255,255,0.2); line-height: 0.9; margin: 0;'>
                 🏆 HALL OF FAME 🏆
             </h1>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-        <div style='text-align: center; margin-bottom: 30px;'>
-            <p style='color: #a0a0a0; font-size: 28px; font-weight: 900; text-transform: uppercase; letter-spacing: 5px; margin: 0;'>
+            <p style='color: #a0a0a0; font-size: 28px; font-weight: 900; text-transform: uppercase; letter-spacing: 5px; margin-top: 20px;'>
                 Temporada de {nombre_mes} <span style='color: #ff0000; text-shadow: 0 0 10px #ff0000;'>🔴</span>
             </p>
         </div>
     """, unsafe_allow_html=True)
 
     query_publica = f"""
-        SELECT booster_nombre, estado, wr, fecha_inicio, fecha_fin_real 
-        FROM pedidos 
-        WHERE CAST(fecha_fin_real AS TEXT) LIKE '{mes_actual}%'
+        SELECT p.*,
+        (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa
+        FROM pedidos p
+        WHERE p.fecha_fin_real LIKE '{mes_actual}%'
     """
     df_raw = run_query(query_publica)
 
+    if df_raw.empty:
+        query_backup = "SELECT p.*, (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa FROM pedidos p"
+        df_all = run_query(query_backup)
+        if not df_all.empty:
+            df_raw = df_all[df_all['fecha_fin_real'].astype(str).str.contains(mes_actual)]
+
     if not df_raw.empty:
-        # --- CÁLCULOS ---
         df_term = df_raw[df_raw['estado'] == 'Terminado'].copy()
         total_pedidos = len(df_term)
+
         df_term['wr'] = pd.to_numeric(df_term['wr'], errors='coerce').fillna(0)
         wr_global = df_term['wr'].mean() if not df_term.empty else 0.0
         
@@ -220,10 +165,9 @@ def render_public_ranking():
         total_high = len(df_term[df_term['wr'] >= 60])
         bote_pedidos = total_pedidos * 1.0
         bote_wr = total_high * 1.0
-        bote_acum_ant = 11.0 
+        bote_acum_ant = 11.0
         bote_total = bote_pedidos + bote_wr + bote_acum_ant
 
-        # --- BANNER ---
         st.markdown(f"""
             <div class="prize-banner">
                 <div class="prize-title">💰 GRAN PREMIO {nombre_mes} 💰</div>
@@ -236,83 +180,48 @@ def render_public_ranking():
             </div>
         """, unsafe_allow_html=True)
 
-        # --- PANEL DE STATS GLOBALES ---
         st.markdown(f"""
             <div class="global-stats-panel">
-                <div class="stat-segment">
-                    <p class="stat-title">📦 Pedidos Totales</p>
-                    <p class="stat-value" style="color: #ffffff;">{total_pedidos}</p>
-                </div>
-                <div class="stat-segment">
-                    <p class="stat-title">⚡ Eficiencia</p>
-                    <p class="stat-value" style="color: #2ecc71;">{texto_efi}</p>
-                </div>
-                <div class="stat-segment">
-                    <p class="stat-title">📊 WR Global</p>
-                    <p class="stat-value" style="color: #f1c40f;">{wr_global:.1f}%</p>
-                </div>
+                <div class="stat-segment"><p class="stat-title">📦 Pedidos Totales</p><p class="stat-value">{total_pedidos}</p></div>
+                <div class="stat-segment"><p class="stat-title">⚡ Eficiencia</p><p class="stat-value" style="color: #2ecc71;">{texto_efi}</p></div>
+                <div class="stat-segment"><p class="stat-title">📊 WR Global</p><p class="stat-value" style="color: #f1c40f;">{wr_global:.1f}%</p></div>
             </div>
         """, unsafe_allow_html=True)
 
-        # --- AGRUPACIÓN PARA RANKING ---
         rank_data = []
         for booster, df_b in df_raw.groupby('booster_nombre'):
-            terminados = len(df_b[df_b['estado'] == 'Terminado'])
-            abandonos = len(df_b[df_b['estado'] == 'Abandonado'])
             df_b_term = df_b[df_b['estado'] == 'Terminado'].copy()
+            abandonos = len(df_b[df_b['estado'] == 'Abandonado'])
+            puntos_tarifas = df_b_term['puntos_tarifa'].fillna(2).sum()
+            puntaje = puntos_tarifas - (abandonos * 10)
+            
+            terminados = len(df_b_term)
             df_b_term['wr'] = pd.to_numeric(df_b_term['wr'], errors='coerce').fillna(0)
             high_wr = len(df_b_term[df_b_term['wr'] >= 60])
+            
             if terminados > 0 or abandonos > 0:
-                puntaje = (terminados * 10) + (high_wr * 5) - (abandonos * 15)
                 rank_data.append([booster, terminados, high_wr, abandonos, puntaje])
-        
+
         df_rank = pd.DataFrame(rank_data, columns=['booster_nombre', 'terminados', 'high_wr', 'abandonos', 'puntaje'])
         df_rank = df_rank.sort_values(by="puntaje", ascending=False).reset_index(drop=True)
 
-        # --- PODIO LEGENDARIO RESTAURADO ---
-        c1, c2, c3 = st.columns([1, 1.2, 1]) 
-        if len(df_rank) > 0:
-            with c2: 
-                st.markdown(f"""
-                    <div class="rank-card rank-1">
-                        <div class="rank-icon">🥇</div>
-                        <p class="rank-label">MVP ACTUAL</p>
-                        <p class="rank-name">{df_rank.iloc[0]['booster_nombre']}</p>
-                        <p class="rank-pts">{df_rank.iloc[0]['puntaje']} PTS</p>
-                    </div>
-                """, unsafe_allow_html=True)
-        if len(df_rank) > 1:
-            with c1:
-                st.markdown(f"""
-                    <div class="rank-card rank-2">
-                        <div class="rank-icon">🥈</div>
-                        <p class="rank-label">RANGO 2</p>
-                        <p class="rank-name">{df_rank.iloc[1]['booster_nombre']}</p>
-                        <p class="rank-pts">{df_rank.iloc[1]['puntaje']} PTS</p>
-                    </div>
-                """, unsafe_allow_html=True)
-        if len(df_rank) > 2:
-            with c3:
-                st.markdown(f"""
-                    <div class="rank-card rank-3">
-                        <div class="rank-icon">🥉</div>
-                        <p class="rank-label">RANGO 3</p>
-                        <p class="rank-name">{df_rank.iloc[2]['booster_nombre']}</p>
-                        <p class="rank-pts">{df_rank.iloc[2]['puntaje']} PTS</p>
-                    </div>
-                """, unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1, 1.2, 1])
+        if not df_rank.empty:
+            with c2: st.markdown(f'<div class="rank-card rank-1"><div class="rank-icon">🥇</div><p class="rank-label">MVP ACTUAL</p><p class="rank-name">{df_rank.iloc[0]["booster_nombre"]}</p><p class="rank-pts">{df_rank.iloc[0]["puntaje"]} PTS</p></div>', unsafe_allow_html=True)
+            if len(df_rank) > 1:
+                with c1: st.markdown(f'<div class="rank-card rank-2"><div class="rank-icon">🥈</div><p class="rank-label">RANGO 2</p><p class="rank-name">{df_rank.iloc[1]["booster_nombre"]}</p><p class="rank-pts">{df_rank.iloc[1]["puntaje"]} PTS</p></div>', unsafe_allow_html=True)
+            if len(df_rank) > 2:
+                with c3: st.markdown(f'<div class="rank-card rank-3"><div class="rank-icon">🥉</div><p class="rank-label">RANGO 3</p><p class="rank-name">{df_rank.iloc[2]["booster_nombre"]}</p><p class="rank-pts">{df_rank.iloc[2]["puntaje"]} PTS</p></div>', unsafe_allow_html=True)
 
-        st.markdown("<br><br>", unsafe_allow_html=True) 
-        
-        # --- TABLA ---
+        st.markdown("<br>", unsafe_allow_html=True)
         tabla_html = "<table class='esports-table'><thead><tr><th>N°</th><th style='text-align:left'>Staff</th><th>✅ Term.</th><th>🔥 WR 60%</th><th>❌ Aban.</th><th>⭐ Pts</th></tr></thead><tbody>"
         for index, row in df_rank.iterrows():
-            tabla_html += f"<tr><td>#{index+1}</td><td class='col-staff'>{row['booster_nombre']}</td><td>{row['terminados']}</td><td>{row['high_wr']}</td><td style='color:#e74c3c'>{row['abandonos']}</td><td style='color:#2ecc71; font-weight:bold;'>{row['puntaje']} pts</td></tr>"
+            tabla_html += f"<tr><td>{index+1}°</td><td class='col-staff'>{row['booster_nombre']}</td><td>{row['terminados']}</td><td>{row['high_wr']}</td><td style='color:#e74c3c'>{row['abandonos']}</td><td style='color:#2ecc71; font-weight:bold;'>{row['puntaje']} pts</td></tr>"
         tabla_html += "</tbody></table>"
         st.markdown(tabla_html, unsafe_allow_html=True)
 
     else:
-        st.info("No hay datos para este mes.")
+        st.info(f"No hay pedidos terminados registrados para {nombre_mes} todavía.")
 
     st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
 

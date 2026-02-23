@@ -524,7 +524,7 @@ def obtener_ranking_staff_db(filtro_fecha=None):
     WHERE p.fecha_fin_real LIKE ? 
     GROUP BY b.id, b.nombre 
     HAVING (terminados > 0 OR abandonos > 0)
-    ORDER BY score DESC LIMIT 10
+    ORDER BY score DESC
     """
     cursor.execute(query, (f"{filtro_fecha}%",))
     ranking = cursor.fetchall(); conn.close(); return ranking
