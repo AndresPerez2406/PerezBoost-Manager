@@ -228,7 +228,7 @@ def render_public_ranking():
     st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 🚦 EL ENRUTADOR (INTERCEPTOR DE URL A PRUEBA DE BALAS)
+# 🚦 EL ENRUTADOR
 # ==============================================================================
 try:
     if hasattr(st, "query_params"):
