@@ -121,8 +121,16 @@ def render_public_ranking():
         </style>
     """, unsafe_allow_html=True)
 
+    meses_es = {
+        "January": "Enero", "February": "Febrero", "March": "Marzo", 
+        "April": "Abril", "May": "Mayo", "June": "Junio", 
+        "July": "Julio", "August": "Agosto", "September": "Septiembre", 
+        "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
+    }
+    
     mes_actual = datetime.now().strftime("%Y-%m")
-    nombre_mes = datetime.now().strftime("%B").upper()
+    mes_ingles = datetime.now().strftime("%B")
+    nombre_mes = meses_es.get(mes_ingles, mes_ingles).upper()
 
     st.markdown(f"""
         <div style='text-align: center; margin-top: 20px; margin-bottom: 10px;'>
