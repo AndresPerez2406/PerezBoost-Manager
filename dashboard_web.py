@@ -143,12 +143,6 @@ def render_public_ranking():
     """
     df_raw = run_query(query_publica)
 
-    if df_raw.empty:
-        query_backup = "SELECT p.*, (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa FROM pedidos p"
-        df_all = run_query(query_backup)
-        if not df_all.empty:
-            df_raw = df_all[df_all['fecha_fin_real'].astype(str).str.contains(mes_actual)]
-
     if not df_raw.empty:
         df_term = df_raw[df_raw['estado'] == 'Terminado'].copy()
         total_pedidos = len(df_term)
@@ -156,13 +150,20 @@ def render_public_ranking():
         total_high = len(df_term[df_term['wr_val'] >= 60])
 
         if total_pedidos > 0:
+
             df_term['f_ini'] = pd.to_datetime(df_term['fecha_inicio'], errors='coerce')
             df_term['f_fin'] = pd.to_datetime(df_term['fecha_fin_real'], errors='coerce')
-            dias_totales = (df_term['f_fin'] - df_term['f_ini']).dt.total_seconds() / 86400
-            suma_dias = dias_totales.apply(lambda x: max(x, 0.5)).sum()
+
+            df_calc = df_term.dropna(subset=['f_ini', 'f_fin']).copy()
             
-            eficiencia_val = suma_dias / total_pedidos
-            texto_efi = f"{eficiencia_val:.1f} Días" if eficiencia_val >= 1 else "⚡ < 1 Día"
+            if not df_calc.empty:
+                segundos_totales = (df_calc['f_fin'] - df_calc['f_ini']).dt.total_seconds()
+                suma_dias = segundos_totales.apply(lambda x: max(x, 43200)).sum() / 86400
+                eficiencia_val = suma_dias / total_pedidos
+                texto_efi = f"{eficiencia_val:.1f} Días" if eficiencia_val >= 1 else "⚡ < 1 Día"
+            else:
+                texto_efi = "0 Días"
+                
             wr_global = df_term['wr_val'].mean()
         else:
             texto_efi = "0 Días"
