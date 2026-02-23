@@ -1381,12 +1381,17 @@ class PerezBoostApp(ctk.CTk):
                 bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) + ajuste_manual
                 if bote_total < 0: bote_total = 0.0
 
+                if 0 < avg_dias < 1:
+                    texto_eficiencia = "⚡ < 1 Día"
+                else:
+                    texto_eficiencia = f"{avg_dias:.1f} Días"
+
             except Exception as e:
                 print(f"Error calculo stats: {e}")
                 cant_term, total_pedidos, avg_dias, wr_prom, cant_high_wr, bote_total, nota_ajuste = 0, 0, 0, 0, 0, 0, ""
 
-            self.lbl_totales.configure(text=f"{total_pedidos}") 
-            self.lbl_eficiencia.configure(text="⚡ < 1 Día" if 0 < avg_dias < 1 else f"{avg_dias:.1f} Días")
+            self.lbl_eficiencia.configure(text=texto_eficiencia)
+            self.lbl_totales.configure(text=f"{cant_term}")
             self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
             self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n{nota_ajuste}")
 

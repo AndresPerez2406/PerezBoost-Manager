@@ -135,39 +135,27 @@ def render_public_ranking():
         </div>
     """, unsafe_allow_html=True)
 
-    query_publica = f"""
-        SELECT p.*,
-        (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa
+    query_completa = f"""
+        SELECT 
+            p.*, 
+            (julianday(p.fecha_fin_real) - julianday(p.fecha_inicio)) as dias_pedido,
+            (SELECT puntos FROM config_precios 
+             WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) 
+             LIMIT 1) as puntos_tarifa
         FROM pedidos p
         WHERE p.fecha_fin_real LIKE '{mes_actual}%'
+          AND p.estado IN ('Terminado', 'Abandonado')
     """
-    df_raw = run_query(query_publica)
+    df_raw = run_query(query_completa)
 
     if not df_raw.empty:
         df_term = df_raw[df_raw['estado'] == 'Terminado'].copy()
         total_pedidos = len(df_term)
         df_term['wr_val'] = pd.to_numeric(df_term['wr'], errors='coerce').fillna(0)
         total_high = len(df_term[df_term['wr_val'] >= 60])
-
-        if total_pedidos > 0:
-
-            df_term['f_ini'] = pd.to_datetime(df_term['fecha_inicio'], errors='coerce')
-            df_term['f_fin'] = pd.to_datetime(df_term['fecha_fin_real'], errors='coerce')
-
-            df_calc = df_term.dropna(subset=['f_ini', 'f_fin']).copy()
-            
-            if not df_calc.empty:
-                segundos_totales = (df_calc['f_fin'] - df_calc['f_ini']).dt.total_seconds()
-                suma_dias = segundos_totales.apply(lambda x: max(x, 43200)).sum() / 86400
-                eficiencia_val = suma_dias / total_pedidos
-                texto_efi = f"{eficiencia_val:.1f} Días" if eficiencia_val >= 1 else "⚡ < 1 Día"
-            else:
-                texto_efi = "0 Días"
-                
-            wr_global = df_term['wr_val'].mean()
-        else:
-            texto_efi = "0 Días"
-            wr_global = 0.0
+        wr_global = df_term['wr_val'].mean() if not df_term.empty else 0.0
+        avg_dias = df_term['dias_pedido'].mean() if not df_term.empty else 0
+        texto_efi = f"{avg_dias:.1f} d" if avg_dias >= 1 else "⚡ < 1 d"
 
         bote_pedidos = total_pedidos * 1.0
         bote_wr = total_high * 1.0
@@ -200,13 +188,10 @@ def render_public_ranking():
             abandonos = len(df_b[df_b['estado'] == 'Abandonado'])
             puntos_tarifas = df_b_term['puntos_tarifa'].fillna(2).sum()
             puntaje = puntos_tarifas - (abandonos * 10)
-            
             terminados = len(df_b_term)
-            df_b_term['wr'] = pd.to_numeric(df_b_term['wr'], errors='coerce').fillna(0)
-            high_wr = len(df_b_term[df_b_term['wr'] >= 60])
-            
+            high_wr_staff = len(df_b_term[df_b_term['wr_val'] >= 60])
             if terminados > 0 or abandonos > 0:
-                rank_data.append([booster, terminados, high_wr, abandonos, puntaje])
+                rank_data.append([booster, terminados, high_wr_staff, abandonos, puntaje])
 
         df_rank = pd.DataFrame(rank_data, columns=['booster_nombre', 'terminados', 'high_wr', 'abandonos', 'puntaje'])
         df_rank = df_rank.sort_values(by="puntaje", ascending=False).reset_index(drop=True)
