@@ -156,11 +156,19 @@ def render_public_ranking():
         df_term['wr'] = pd.to_numeric(df_term['wr'], errors='coerce').fillna(0)
         wr_global = df_term['wr'].mean() if not df_term.empty else 0.0
         
+        df_term = df_raw[df_raw['estado'] == 'Terminado'].copy()
         df_term['f_ini'] = pd.to_datetime(df_term['fecha_inicio'], errors='coerce')
         df_term['f_fin'] = pd.to_datetime(df_term['fecha_fin_real'], errors='coerce')
-        dias = (df_term['f_fin'] - df_term['f_ini']).dt.days.apply(lambda x: max(x, 1))
-        eficiencia = dias.mean() if not dias.empty else 0
-        texto_efi = f"{eficiencia:.1f} Días" if eficiencia >= 1 else "⚡ < 1 Día"
+
+        df_term = df_term.dropna(subset=['f_ini', 'f_fin'])
+
+        dias_totales = (df_term['f_fin'] - df_term['f_ini']).dt.total_seconds() / 86400
+        dias_limpios = dias_totales.apply(lambda x: max(x, 0.1))
+        eficiencia = dias_limpios.mean() if not dias_limpios.empty else 0
+        if 0 < eficiencia < 1:
+            texto_efi = "⚡ < 1 Día"
+        else:
+            texto_efi = f"{eficiencia:.1f} Días"
 
         total_high = len(df_term[df_term['wr'] >= 60])
         bote_pedidos = total_pedidos * 1.0
