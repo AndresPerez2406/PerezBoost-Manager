@@ -154,21 +154,27 @@ def render_public_ranking():
         total_pedidos = len(df_term)
 
         df_term['wr'] = pd.to_numeric(df_term['wr'], errors='coerce').fillna(0)
-        wr_global = df_term['wr'].mean() if not df_term.empty else 0.0
-        
-        df_term = df_raw[df_raw['estado'] == 'Terminado'].copy()
-        df_term['f_ini'] = pd.to_datetime(df_term['fecha_inicio'], errors='coerce')
-        df_term['f_fin'] = pd.to_datetime(df_term['fecha_fin_real'], errors='coerce')
+        total_high = len(df_term[df_term['wr_val'] >= 60])
 
-        df_term = df_term.dropna(subset=['f_ini', 'f_fin'])
-
-        dias_totales = (df_term['f_fin'] - df_term['f_ini']).dt.total_seconds() / 86400
-        dias_limpios = dias_totales.apply(lambda x: max(x, 0.1))
-        eficiencia = dias_limpios.mean() if not dias_limpios.empty else 0
-        if 0 < eficiencia < 1:
-            texto_efi = "⚡ < 1 Día"
+        if total_pedidos > 0:
+            # 1. Convertimos a fecha
+            df_term['f_ini'] = pd.to_datetime(df_term['fecha_inicio'], errors='coerce')
+            df_term['f_fin'] = pd.to_datetime(df_term['fecha_fin_real'], errors='coerce')
+            
+            # 2. Calculamos la suma total de días de todos los pedidos
+            # (Si f_fin es igual a f_ini, el mínimo es 0.5 para que cuente algo de tiempo)
+            dias_por_pedido = (df_term['f_fin'] - df_term['f_ini']).dt.total_seconds() / 86400
+            suma_dias_total = dias_por_pedido.apply(lambda x: max(x, 0.5)).sum()
+            
+            # 3. EFICIENCIA SIMPLE: Días / Pedidos
+            eficiencia = suma_dias_total / total_pedidos
+            
+            if eficiencia < 1:
+                texto_efi = "⚡ < 1 Día"
+            else:
+                texto_efi = f"{eficiencia:.1f} Días"
         else:
-            texto_efi = f"{eficiencia:.1f} Días"
+            texto_efi = "0 Días"
 
         total_high = len(df_term[df_term['wr'] >= 60])
         bote_pedidos = total_pedidos * 1.0
