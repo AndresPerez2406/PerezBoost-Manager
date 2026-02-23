@@ -1295,139 +1295,139 @@ class PerezBoostApp(ctk.CTk):
     # 9. SECCIÓN: LEABOARD
     # =========================================================================
     
-    def mostrar_leaderboard(self):
-        self.limpiar_pantalla()
-        self.configurar_estilo_tabla()
+        def mostrar_leaderboard(self):
+            self.limpiar_pantalla()
+            self.configurar_estilo_tabla()
 
-        meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        fecha_hoy = datetime.now()
-        mes_actual_idx = fecha_hoy.month - 1
-        anio_actual = fecha_hoy.year
+            meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            fecha_hoy = datetime.now()
+            mes_actual_idx = fecha_hoy.month - 1
+            anio_actual = fecha_hoy.year
 
-        main_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        main_frame.pack(expand=True, fill="both", padx=30, pady=20)
+            main_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+            main_frame.pack(expand=True, fill="both", padx=30, pady=20)
 
-        header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        header_frame.pack(fill="x", pady=(0, 15))
-        ctk.CTkLabel(header_frame, text="🏆 HALL OF FAME", font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(side="left")
+            header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+            header_frame.pack(fill="x", pady=(0, 15))
+            ctk.CTkLabel(header_frame, text="🏆 HALL OF FAME", font=("Arial", 28, "bold"), text_color="#ecf0f1").pack(side="left")
 
-        self.combo_mes_rank = ctk.CTkOptionMenu(header_frame, values=meses_nombres, width=140, fg_color="#34495e")
-        self.combo_mes_rank.set(meses_nombres[mes_actual_idx]) 
-        self.combo_mes_rank.pack(side="right")
-        ctk.CTkLabel(header_frame, text="📅 Filtrar Mes:", font=("Arial", 14)).pack(side="right", padx=10)
+            self.combo_mes_rank = ctk.CTkOptionMenu(header_frame, values=meses_nombres, width=140, fg_color="#34495e")
+            self.combo_mes_rank.set(meses_nombres[mes_actual_idx]) 
+            self.combo_mes_rank.pack(side="right")
+            ctk.CTkLabel(header_frame, text="📅 Filtrar Mes:", font=("Arial", 14)).pack(side="right", padx=10)
 
-        prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
-        prize_frame.pack(fill="x", pady=(0, 20), padx=5)
-        self.lbl_bote = ctk.CTkLabel(prize_frame, text="...", font=("Arial", 18, "bold"), text_color="#ecf0f1")
-        self.lbl_bote.pack(pady=15)
+            prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
+            prize_frame.pack(fill="x", pady=(0, 20), padx=5)
+            self.lbl_bote = ctk.CTkLabel(prize_frame, text="...", font=("Arial", 18, "bold"), text_color="#ecf0f1")
+            self.lbl_bote.pack(pady=15)
 
-        stats_frame = ctk.CTkFrame(main_frame, fg_color="#1a1a1a", border_width=1, border_color="#5865F2")
-        stats_frame.pack(fill="x", pady=(0, 20))
-        stats_frame.columnconfigure((0,1,2), weight=1)
+            stats_frame = ctk.CTkFrame(main_frame, fg_color="#1a1a1a", border_width=1, border_color="#5865F2")
+            stats_frame.pack(fill="x", pady=(0, 20))
+            stats_frame.columnconfigure((0,1,2), weight=1)
 
-        ctk.CTkLabel(stats_frame, text="📦 Pedidos Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
-        self.lbl_totales = ctk.CTkLabel(stats_frame, text="0", font=("Arial", 16, "bold"), text_color="white")
-        self.lbl_totales.grid(row=1, column=0, pady=(0,10))
+            ctk.CTkLabel(stats_frame, text="📦 Pedidos Totales", font=("Arial", 11), text_color="gray").grid(row=0, column=0, pady=(10,0))
+            self.lbl_totales = ctk.CTkLabel(stats_frame, text="0", font=("Arial", 16, "bold"), text_color="white")
+            self.lbl_totales.grid(row=1, column=0, pady=(0,10))
 
-        ctk.CTkLabel(stats_frame, text="⚡ Eficiencia (Días/Pedido)", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
-        self.lbl_eficiencia = ctk.CTkLabel(stats_frame, text="0 Días", font=("Arial", 16, "bold"), text_color="#2ecc71")
-        self.lbl_eficiencia.grid(row=1, column=1, pady=(0,10))
+            ctk.CTkLabel(stats_frame, text="⚡ Eficiencia (Días/Pedido)", font=("Arial", 11), text_color="gray").grid(row=0, column=1, pady=(10,0))
+            self.lbl_eficiencia = ctk.CTkLabel(stats_frame, text="0 Días", font=("Arial", 16, "bold"), text_color="#2ecc71")
+            self.lbl_eficiencia.grid(row=1, column=1, pady=(0,10))
 
-        ctk.CTkLabel(stats_frame, text="📊 WR Global", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
-        self.lbl_wr = ctk.CTkLabel(stats_frame, text="0%", font=("Arial", 16, "bold"), text_color="#f1c40f")
-        self.lbl_wr.grid(row=1, column=2, pady=(0,10))
+            ctk.CTkLabel(stats_frame, text="📊 WR Global", font=("Arial", 11), text_color="gray").grid(row=0, column=2, pady=(10,0))
+            self.lbl_wr = ctk.CTkLabel(stats_frame, text="0%", font=("Arial", 16, "bold"), text_color="#f1c40f")
+            self.lbl_wr.grid(row=1, column=2, pady=(0,10))
 
-        tabla_frame = ctk.CTkFrame(main_frame, fg_color="#1e1e1e", corner_radius=10)
-        tabla_frame.pack(expand=True, fill="both", pady=(0, 20))
+            tabla_frame = ctk.CTkFrame(main_frame, fg_color="#1e1e1e", corner_radius=10)
+            tabla_frame.pack(expand=True, fill="both", pady=(0, 20))
 
-        cols = ("Rango", "Staff", "Completados", "High_WR", "Abandonos", "Puntaje")
-        self.tabla_rank = ttk.Treeview(tabla_frame, columns=cols, show="headings", height=8)
+            cols = ("Rango", "Staff", "Completados", "High_WR", "Abandonos", "Puntaje")
+            self.tabla_rank = ttk.Treeview(tabla_frame, columns=cols, show="headings", height=8)
 
-        headers = ["Rango", "Staff", "Terminados", "WR => 60%", "Abandonos", "Puntaje"]
-        anchos = [80, 150, 100, 100, 80, 100]
+            headers = ["Rango", "Staff", "Terminados", "WR => 60%", "Abandonos", "Puntaje"]
+            anchos = [80, 150, 100, 100, 80, 100]
 
-        for col, title, ancho in zip(cols, headers, anchos):
-            self.tabla_rank.heading(col, text=title)
-            self.tabla_rank.column(col, width=ancho, anchor="center")
-        
-        self.tabla_rank.pack(side="left", expand=True, fill="both", padx=5, pady=5)
-        self.tabla_rank.tag_configure("top1", background="#2d2d2d") 
-
-        def actualizar_datos_ranking(event=None):
-            nombre_mes = self.combo_mes_rank.get()
-            num_mes = str(meses_nombres.index(nombre_mes) + 1).zfill(2)
-            filtro = f"{anio_actual}-{num_mes}"
-
-            for item in self.tabla_rank.get_children(): self.tabla_rank.delete(item)
-
-            try:
-
-                cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
-
-                total_pedidos = cant_term
-
-                bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) 
-
-            except Exception as e:
-                print(f"Error calculo stats: {e}")
-                cant_term, total_pedidos, avg_dias, wr_prom, cant_high_wr = 0, 0, 0, 0, 0
-                bote_total = 0.0
-
-            self.lbl_totales.configure(text=f"{total_pedidos}") 
-
-            if avg_dias > 0 and avg_dias < 1:
-                texto_eficiencia = "⚡ < 1 Día"
-            else:
-                texto_eficiencia = f"{avg_dias:.1f} Días"
-            self.lbl_eficiencia.configure(text=texto_eficiencia)
-
-            self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
+            for col, title, ancho in zip(cols, headers, anchos):
+                self.tabla_rank.heading(col, text=title)
+                self.tabla_rank.column(col, width=ancho, anchor="center")
             
-            self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1 Pedido + $1 Bono WR)")
+            self.tabla_rank.pack(side="left", expand=True, fill="both", padx=5, pady=5)
+            self.tabla_rank.tag_configure("top1", background="#2d2d2d") 
 
-            ranking_data = obtener_ranking_staff_db(filtro)
+            def actualizar_datos_ranking(event=None):
+                nombre_mes = self.combo_mes_rank.get()
+                num_mes = str(meses_nombres.index(nombre_mes) + 1).zfill(2)
+                filtro = f"{anio_actual}-{num_mes}"
+
+                for item in self.tabla_rank.get_children(): self.tabla_rank.delete(item)
+
+                try:
+
+                    cant_term, cant_aban, wr_prom, cant_high_wr, avg_dias = obtener_resumen_mensual_db(filtro)
+
+                    total_pedidos = cant_term
+
+                    bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) 
+
+                except Exception as e:
+                    print(f"Error calculo stats: {e}")
+                    cant_term, total_pedidos, avg_dias, wr_prom, cant_high_wr = 0, 0, 0, 0, 0
+                    bote_total = 0.0
+
+                self.lbl_totales.configure(text=f"{total_pedidos}") 
+
+                if avg_dias > 0 and avg_dias < 1:
+                    texto_eficiencia = "⚡ < 1 Día"
+                else:
+                    texto_eficiencia = f"{avg_dias:.1f} Días"
+                self.lbl_eficiencia.configure(text=texto_eficiencia)
+
+                self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
+                
+                self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n($1 Pedido + $1 Bono WR)")
+
+                ranking_data = obtener_ranking_staff_db(filtro)
+                
+                if not ranking_data:
+                    self.tabla_rank.insert("", "end", values=("...", "Sin datos...", "-", "-", "-", "0 pts"))
+                else:
+                    for i, b in enumerate(ranking_data, start=1):
+
+                        nombre = b[0]
+                        terminados = b[1]
+                        aportes_wr = b[2]
+                        abandonos = b[3]
+                        puntaje = int(b[4])
+
+                        if i == 1: rango = "🥇 MVP"
+                        elif i == 2: rango = "🥈"
+                        elif i == 3: rango = "🥉"
+                        else: rango = f"#{i}"
+
+                        item = self.tabla_rank.insert("", "end", values=(
+                            rango,
+                            nombre,
+                            terminados,
+                            f"{aportes_wr}",
+                            abandonos,
+                            f"{puntaje} pts"
+                        ))
+                        
+                        if i == 1: self.tabla_rank.item(item, tags=("top1",))
+
+            btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+            btn_frame.pack(fill="x", pady=10)
             
-            if not ranking_data:
-                self.tabla_rank.insert("", "end", values=("...", "Sin datos...", "-", "-", "-", "0 pts"))
-            else:
-                for i, b in enumerate(ranking_data, start=1):
+            ctk.CTkButton(btn_frame, text="🔄 Recargar", command=actualizar_datos_ranking, 
+                        fg_color="#1f538d", height=40).pack(side="left", expand=True, padx=10)
 
-                    nombre = b[0]
-                    terminados = b[1]
-                    aportes_wr = b[2]
-                    abandonos = b[3]
-                    puntaje = int(b[4])
+            ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
+                        fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
 
-                    if i == 1: rango = "🥇 MVP"
-                    elif i == 2: rango = "🥈"
-                    elif i == 3: rango = "🥉"
-                    else: rango = f"#{i}"
+            self.combo_mes_rank.configure(command=actualizar_datos_ranking)
 
-                    item = self.tabla_rank.insert("", "end", values=(
-                        rango,
-                        nombre,
-                        terminados,
-                        f"{aportes_wr}",
-                        abandonos,
-                        f"{puntaje} pts"
-                    ))
-                    
-                    if i == 1: self.tabla_rank.item(item, tags=("top1",))
-
-        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=10)
+            actualizar_datos_ranking()
         
-        ctk.CTkButton(btn_frame, text="🔄 Recargar", command=actualizar_datos_ranking, 
-                      fg_color="#1f538d", height=40).pack(side="left", expand=True, padx=10)
-
-        ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
-                      fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
-
-        self.combo_mes_rank.configure(command=actualizar_datos_ranking)
-
-        actualizar_datos_ranking()
-    
     def compartir_ranking_discord(self):
         url = obtener_config_sistema("discord_webhook_ranking") 
         if not url: url = obtener_config_sistema("discord_webhook")
