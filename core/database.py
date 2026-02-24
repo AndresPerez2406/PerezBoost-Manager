@@ -476,6 +476,22 @@ def obtener_config_sistema(clave):
         res = cursor.fetchone()
         return res[0] if res else ""
     finally: conn.close()
+    
+def ya_se_ejecuto_hoy(tarea):
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM sistema_config WHERE clave = ?", (f"last_run_{tarea}",))
+    res = cursor.fetchone()
+    conn.close()
+    
+    if res and res[0] == hoy:
+        return True
+    return False
+
+def marcar_tarea_completada(tarea):
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    guardar_config_sistema(f"last_run_{tarea}", hoy)
 
 # ==========================================
 # SECCIÓN 8: SISTEMA DE AUDITORÍA (LOGS)

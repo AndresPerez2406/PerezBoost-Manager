@@ -12,11 +12,11 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from core.discord_handler import DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
+from core.discord_handler import COLOR_DANGER, DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
 from core.cloud_sync import logica_subir_a_nube, logica_bajar_de_nube
 from core.database import (
     actualizar_pedido_db, actualizar_booster_db, actualizar_inventario_db,
-    agregar_booster, eliminar_booster, obtener_boosters_db,
+    agregar_booster, eliminar_booster, marcar_tarea_completada, obtener_boosters_db,
     realizar_backup_db, obtener_config_precios, actualizar_precio_db,
     agregar_precio_db, eliminar_precio_db, inicializar_db, conectar,
     obtener_conteo_pedidos_activos, obtener_conteo_stock, obtener_ganancia_proyectada,
@@ -26,7 +26,7 @@ from core.database import (
     obtener_pedidos_mes_actual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
     obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
     obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
-    obtener_resumen_financiero_real
+    obtener_resumen_financiero_real, ya_se_ejecuto_hoy
 )
 
 from core.logic import (
@@ -92,22 +92,24 @@ class PerezBoostApp(ctk.CTk):
         self.logo_label.grid(row=0, column=0, padx=20, pady=30)
 
         self.crear_boton_menu("🏠 Dashboard", self.mostrar_dashboard, 1)
-        self.crear_boton_menu("⚙️ Tarifas", self.mostrar_precios, 2)
-        self.crear_boton_menu("👥 Boosters", self.mostrar_boosters, 3)
-        self.crear_boton_menu("🏆 Ranking Staff", self.mostrar_leaderboard, 4)
-        self.crear_boton_menu("📦 Inventario", self.mostrar_inventario, 5)
-        self.crear_boton_menu("📜 Pedidos Activos", self.mostrar_pedidos, 6)
-        self.crear_boton_menu("💰 Finanzas", self.mostrar_finanzas, 7)
-        self.crear_boton_menu("📊 Historial", self.mostrar_historial, 8)
-        self.crear_boton_menu("📈 Reportes Pro", self.mostrar_reportes, 9)
+        self.crear_boton_menu("🤖 Auto-Pilot", self.mostrar_autopilot, 2)
+        self.crear_boton_menu("⚙️ Tarifas", self.mostrar_precios, 3)
+        self.crear_boton_menu("👥 Boosters", self.mostrar_boosters, 4)
+        self.crear_boton_menu("🏆 Ranking Staff", self.mostrar_leaderboard, 5)
+        self.crear_boton_menu("📦 Inventario", self.mostrar_inventario, 6)
+        self.crear_boton_menu("📜 Pedidos Activos", self.mostrar_pedidos, 7)
+        self.crear_boton_menu("💰 Finanzas", self.mostrar_finanzas, 8)
+        self.crear_boton_menu("📊 Historial", self.mostrar_historial, 9)
+        self.crear_boton_menu("📈 Reportes Pro", self.mostrar_reportes, 10)
 
         self.content_frame = ctk.CTkFrame(self, corner_radius=15, fg_color="#121212")
         self.content_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
         self.configurar_menus()
         self.mostrar_dashboard()
+        self.iniciar_centinela_automatico()
 
     # =========================================================================
-    # 1. UTILIDADES Y CONFIGURACIÓN UI
+    # UTILIDADES Y CONFIGURACIÓN UI
     # =========================================================================
 
     def limpiar_pantalla(self):
@@ -205,7 +207,7 @@ class PerezBoostApp(ctk.CTk):
         print(f"✅ Copiado exitoso: {texto_final}")
         
     # =========================================================================
-    # 2. SECCIÓN: DASHBOARD
+    # SECCIÓN: DASHBOARD
     # =========================================================================
 
     def mostrar_dashboard(self):
@@ -372,9 +374,208 @@ class PerezBoostApp(ctk.CTk):
             print(f"Error calculando resumen: {e}")
             
         return criticos, proximos
+    
+    # =========================================================================
+    # SECCIÓN: AUTOPILOT
+    # =========================================================================
+    
+    def mostrar_autopilot(self):
+        self.limpiar_pantalla()
+        
+        header = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        header.pack(pady=20, padx=30, fill="x")
+        ctk.CTkLabel(header, text="🤖 AUTO-PILOT OPS (V14.0)", font=("Arial", 24, "bold"), text_color="#2ecc71").pack(side="left")
+
+        container = ctk.CTkScrollableFrame(self.content_frame, fg_color="#1a1a1a", corner_radius=15)
+        container.pack(fill="both", expand=True, padx=30, pady=10)
+
+        f1 = ctk.CTkFrame(container, fg_color="#252525", border_width=1, border_color="#e74c3c")
+        f1.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(f1, text="🚨 Monitoreo de Alerta Roja", font=("Arial", 16, "bold")).pack(pady=10)
+        ctk.CTkLabel(f1, text="Envía alertas a Discord si un pedido vence en menos de 12 horas.", text_color="gray").pack()
+        ctk.CTkButton(f1, text="Ejecutar Escaneo Ahora", fg_color="#e74c3c", command=self.check_alertas_criticas).pack(pady=15)
+
+        f2 = ctk.CTkFrame(container, fg_color="#252525")
+        f2.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(f2, text="💸 Bulk Payout (Tesorero)", font=("Arial", 16, "bold")).pack(pady=10)
+        ctk.CTkLabel(f2, text="Genera el reporte de pagos pendientes para liquidar a todo el staff.", text_color="gray").pack()
+        ctk.CTkButton(f2, text="Generar Nómina .CSV", fg_color="#3498db", command=self.exportar_nomina_csv).pack(pady=15)
+        
+        f3 = ctk.CTkFrame(container, fg_color="#252525", border_width=1, border_color="#2ecc71")
+        f3.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(f3, text="📊 Cierre Ejecutivo (Dashboard)", font=("Arial", 16, "bold")).pack(pady=10)
+        ctk.CTkLabel(f3, text="Envía el reporte detallado de todas las cuentas cerradas hoy a Discord.", text_color="gray").pack()
+        
+        ctk.CTkButton(
+            f3, 
+            text="🚀 Enviar Reporte de Cierre", 
+            fg_color="#2ecc71", 
+            hover_color="#27ae60",
+            height=40,
+            command=self.ejecutar_cierre_diario_discord
+        ).pack(pady=15)
+
+    def check_alertas_criticas(self):
+        url = obtener_config_sistema("discord_webhook_alertas")
+        if not url: 
+            messagebox.showerror("Error", "Configura el Webhook en 'Tarifas' primero.")
+            return
+
+        alertas_enviadas = 0
+        pedidos = obtener_pedidos_activos()
+        hoy = datetime.now()
+
+        for p in pedidos:
+            try:
+                fecha_str = str(p[5]).split(' ')[0]
+                limite = None
+
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                    try: 
+                        limite = datetime.strptime(fecha_str, fmt)
+                        break
+                    except: continue
+
+                if limite and limite < (hoy + timedelta(hours=24)):
+                    notifier = DiscordNotifier(url)
+                    notifier.enviar_notificacion(
+                        titulo="🚨 RETRASO CRÍTICO",
+                        descripcion=f"El pedido de **{p[1]}** (Staff) vence en menos de 12 horas.",
+                        color=COLOR_DANGER 
+                    )
+                    alertas_enviadas += 1
+
+            except Exception as e:
+                print(f"Error procesando pedido: {e}")
+                continue
+        messagebox.showinfo("Auto-Pilot", f"Escaneo finalizado.\nAlertas enviadas a Discord: {alertas_enviadas}")
+
+    def exportar_nomina_csv(self):
+        saldos = obtener_saldos_pendientes_db()
+        if not saldos:
+            messagebox.showinfo("Nómina", "No hay deudas pendientes.")
+            return
+        
+        df = pd.DataFrame(saldos, columns=["Staff", "Total Deuda", "Pedidos", "Detalle"])
+        ruta = filedialog.asksaveasfilename(defaultextension=".csv", initialfile=f"Nomina_PerezBoost_{datetime.now().strftime('%Y-%m-%d')}.csv")
+        if ruta:
+            df.to_csv(ruta, index=False)
+            messagebox.showinfo("Éxito", "Nómina exportada correctamente.")
+            
+    def ejecutar_cierre_diario_discord(self):
+        """Genera el reporte detallado del dashboard y lo envía a Discord"""
+        hoy_str = datetime.now().strftime("%Y-%m-%d")
+        url = obtener_config_sistema("discord_webhook_alertas")
+        
+        if not url:
+            messagebox.showerror("Error", "Configura el Webhook en 'Tarifas'.")
+            return
+
+        conn = conectar()
+        cursor = conn.cursor()
+        
+        try:
+            notifier = DiscordNotifier(url)
+            
+            cursor.execute("""
+                SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr,
+                       fecha_inicio, fecha_fin_real,
+                       pago_cliente, pago_booster, ganancia_empresa 
+                FROM pedidos 
+                WHERE estado = 'Terminado' AND DATE(fecha_fin_real) = DATE(?)
+                ORDER BY fecha_fin_real ASC
+            """, (hoy_str,))
+            
+            pedidos_hoy = cursor.fetchall()
+            sum_ventas = 0.0; sum_staff = 0.0; sum_profit_db = 0.0
+            total_bote_ranking = 0.0    
+
+            reporte = f"📊 **REPORTE EJECUTIVO DE CIERRE**\n📅 **Fecha:** {datetime.now().strftime('%d/%m/%Y')}\n"
+            reporte += "━━━━━━━━━━━━━━━━━━━━\n\n"
+            
+            if not pedidos_hoy:
+                reporte += "*(No se registraron cierres hoy)*\n"
+            
+            def clean_f(val):
+                try: return float(str(val).replace('$', '').replace(',', '').strip())
+                except: return 0.0
+
+            for i, p in enumerate(pedidos_hoy, start=1):
+                p_id, staff, cuenta, e_ini, e_fin, wr, f_ini, f_fin, cobro, pago, ganancia = p
+                
+                v_cobro = clean_f(cobro)
+                v_pago = clean_f(pago)
+                v_ganancia = clean_f(ganancia)
+                try: wr_val = float(wr) 
+                except: wr_val = 0.0
+
+                bote_visual = 2.0 if wr_val >= 60 else 1.0
+                
+                sum_ventas += v_cobro
+                sum_staff += v_pago
+                sum_profit_db += v_ganancia
+                total_bote_ranking += bote_visual
+
+                reporte += f"📦 **ORDEN #{i}** | {str(staff).upper()}\n"
+                reporte += f"├─ 🎮 {e_ini} ➔ {e_fin} ({wr_val}% WR)\n"
+                reporte += f"└─ 💰 Margen: `+${v_ganancia:.2f}` (Bote: `${bote_visual:.2f}`)\n" 
+                reporte += f"──────────────────\n"
+
+            reporte += (
+                f"\n💵 **BALANCE FINAL:**\n"
+                f"• Ventas Brutas: `${sum_ventas:,.2f}`\n"
+                f"• Pago Staff: `-${sum_staff:,.2f}`\n"
+                f"• Bote Ranking: `-${total_bote_ranking:,.2f}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ **PROFIT NETO: `${sum_profit_db:,.2f}`**"
+            )
+            notifier.enviar_notificacion(
+                titulo="📅 CIERRE DE CAJA DIARIO",
+                descripcion=reporte,
+                color=COLOR_SUCCESS
+            )
+            messagebox.showinfo("Auto-Pilot", "Reporte detallado enviado.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Fallo al enviar: {e}")
+
+    def iniciar_centinela_automatico(self):
+        """Hilo en segundo plano que gestiona el Auto-Pilot"""
+        def loop_centinela():
+            import time
+            while True:
+                if not ya_se_ejecuto_hoy("alertas_24h"):
+                    print("🤖 Auto-Pilot: Ejecutando chequeo diario de alertas...")
+                    self.check_alertas_criticas_silencioso()
+                    marcar_tarea_completada("alertas_24h")
+                time.sleep(3600)
+
+        threading.Thread(target=loop_centinela, daemon=True).start()
+
+    def check_alertas_criticas_silencioso(self):
+        """Versión de alertas que no interrumpe con ventanas emergentes"""
+        url = obtener_config_sistema("discord_webhook_alertas") or obtener_config_sistema("discord_webhook")
+        if not url: return
+        pedidos = obtener_pedidos_activos()
+        hoy = datetime.now()
+        for p in pedidos:
+            try:
+                fecha_str = str(p[5]).split(' ')[0]
+                limite = None
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                    try: limite = datetime.strptime(fecha_str, fmt); break
+                    except: continue
+                
+                if limite and limite < (hoy + timedelta(hours=24)):
+                    notifier = DiscordNotifier(url)
+                    notifier.enviar_notificacion(
+                        titulo="🚨 REVISIÓN DIARIA DE SEGURIDAD",
+                        descripcion=f"**Booster:** {p[1]}\n**Cuenta:** {p[4]}\nQuedan menos de 24h para la entrega.",
+                        color=COLOR_WARNING
+                    )
+            except: continue
 
     # =========================================================================
-    # 3. SECCIÓN: TARIFAS Y CONFIGURACIÓN NUBE
+    # SECCIÓN: TARIFAS Y CONFIGURACIÓN NUBE
     # =========================================================================
 
     def mostrar_precios(self):
@@ -432,9 +633,17 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkLabel(row2, text="🏆 Canal Ranking:", width=150, anchor="w").pack(side="left")
         self.entry_webhook_rank = ctk.CTkEntry(row2, width=400, placeholder_text="Webhook Ranking...")
         self.entry_webhook_rank.pack(side="left", fill="x", expand=True, padx=5)
+        
+        row3 = ctk.CTkFrame(frame_discord, fg_color="transparent")
+        row3.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(row3, text="🚨 Canal Alerta Roja:", width=150, anchor="w").pack(side="left")
+        self.entry_webhook_alerts = ctk.CTkEntry(row3, width=400, placeholder_text="Webhook de Alertas Críticas...")
+        self.entry_webhook_alerts.pack(side="left", fill="x", expand=True, padx=5)
 
         url_pedidos = obtener_config_sistema("discord_webhook")
         url_ranking = obtener_config_sistema("discord_webhook_ranking")
+        url_alertas = obtener_config_sistema("discord_webhook_alertas")
+        if url_alertas: self.entry_webhook_alerts.insert(0, url_alertas)
         if url_pedidos: self.entry_webhook.insert(0, url_pedidos)
         if url_ranking: self.entry_webhook_rank.insert(0, url_ranking)
         
@@ -473,12 +682,14 @@ class PerezBoostApp(ctk.CTk):
     def guardar_webhooks_discord(self):
         url_pedidos = self.entry_webhook.get().strip()
         url_ranking = self.entry_webhook_rank.get().strip()
-
+        url_alertas = self.entry_webhook_alerts.get().strip()
+        
         g1 = guardar_config_sistema("discord_webhook", url_pedidos)
         g2 = guardar_config_sistema("discord_webhook_ranking", url_ranking)
+        g3 = guardar_config_sistema("discord_webhook_alertas", url_alertas)
         
-        if g1 and g2:
-            messagebox.showinfo("Discord", "✅ Ambas conexiones guardadas exitosamente.")
+        if g1 and g2 and g3:
+            messagebox.showinfo("Discord", "✅ Conexiones (Pedidos, Ranking y Alertas) guardadas.")
         else:
             messagebox.showerror("Error", "Hubo un problema guardando la configuración.")
 
@@ -519,7 +730,7 @@ class PerezBoostApp(ctk.CTk):
         threading.Thread(target=logica_bajar_de_nube, args=(fin, err)).start()
         
     # =========================================================================
-    # 4. SECCIÓN: BOOSTERS (STAFF)
+    # SECCIÓN: BOOSTERS (STAFF)
     # =========================================================================
 
     def mostrar_boosters(self):
@@ -559,7 +770,7 @@ class PerezBoostApp(ctk.CTk):
                 self.tabla_boosters.insert("", tk.END, values=(i, b[0], b[1]))
 
     # =========================================================================
-    # 5. SECCIÓN: INVENTARIO (STOCK)
+    # SECCIÓN: INVENTARIO (STOCK)
     # =========================================================================
 
     def mostrar_inventario(self):
@@ -607,7 +818,7 @@ class PerezBoostApp(ctk.CTk):
                 self.tabla_inv.insert("", tk.END, values=(d[0], d[3], d[2], d[4]))
 
     # =========================================================================
-    # 6. SECCIÓN: PEDIDOS ACTIVOS
+    # SECCIÓN: PEDIDOS ACTIVOS
     # =========================================================================
 
     def mostrar_pedidos(self):
@@ -706,7 +917,7 @@ class PerezBoostApp(ctk.CTk):
             print(f"Error en tabla: {e}")
 
     # =========================================================================
-    # 7. SECCIÓN: HISTORIAL
+    # SECCIÓN: HISTORIAL
     # =========================================================================
 
     def mostrar_historial(self):
@@ -849,7 +1060,7 @@ class PerezBoostApp(ctk.CTk):
             print(f"Error en historial: {e}")
 
     # =========================================================================
-    # 8. SECCIÓN: REPORTES AVANZADOS Y GRÁFICOS
+    # SECCIÓN: REPORTES AVANZADOS Y GRÁFICOS
     # =========================================================================
 
     def mostrar_reportes(self):
@@ -1112,10 +1323,10 @@ class PerezBoostApp(ctk.CTk):
 
         prom_dias = dias_totales / conteo_pagados if conteo_pagados > 0 else 0
 
-        self.crear_card_mini(self.kpi_frame, "COSTO STAFF (PAGADO)", f"${t_staff:.2f}", "#3498db", 0)
+        self.crear_card_mini(self.kpi_frame, "COSTO STAFF", f"${t_staff:.2f}", "#3498db", 0)
         self.crear_card_mini(self.kpi_frame, "MI NETO REAL", f"${t_neto:.2f}", "#2ecc71", 1)
         self.crear_card_mini(self.kpi_frame, "BOTE RECOLECTADO", f"${t_bote:.2f}", "#f1c40f", 2)
-        self.crear_card_mini(self.kpi_frame, "INGRESOS COBRADOS", f"${t_ventas:.2f}", "#9b59b6", 3)
+        self.crear_card_mini(self.kpi_frame, "VENTAS TOTALES", f"${t_ventas:.2f}", "#9b59b6", 3)
         self.crear_card_mini(self.kpi_frame, "VELOCIDAD MEDIA", f"{prom_dias:.1f} d", "#e67e22", 4)
         self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
 
@@ -1293,7 +1504,7 @@ class PerezBoostApp(ctk.CTk):
     
 
     # =========================================================================
-    # 9. SECCIÓN: LEADERBOARD
+    # SECCIÓN: LEADERBOARD
     # =========================================================================
 
     def mostrar_leaderboard(self):
@@ -1478,7 +1689,7 @@ class PerezBoostApp(ctk.CTk):
             messagebox.showerror("Error", f"Fallo al enviar: {e}")
             
     # ==========================================
-    # 10. GESTIÓN FINANCIERA
+    # SECCIÓN: GESTIÓN FINANCIERA
     # ==========================================
 
     def mostrar_finanzas(self):
@@ -1598,7 +1809,7 @@ class PerezBoostApp(ctk.CTk):
             self.mostrar_finanzas()
 
     # =========================================================================
-    # 11. SECCIÓN: POP-UPS (VENTANAS EMERGENTES)
+    # SECCIÓN: POP-UPS (VENTANAS EMERGENTES)
     # =========================================================================
 
     def abrir_ventana_booster(self):
@@ -1821,8 +2032,20 @@ class PerezBoostApp(ctk.CTk):
         e_dias = ctk.CTkEntry(v, width=100); e_dias.insert(0, "1"); e_dias.pack(pady=20)
         def confirm():
             f_act = str(self.tabla_pedidos.item(sel)['values'][6])
-            nueva = (datetime.strptime(f_act, "%Y-%m-%d") + timedelta(days=int(e_dias.get()))).strftime("%Y-%m-%d")
-            actualizar_pedido_db(id_r, {"fecha_limite": nueva}); v.destroy(); self.mostrar_pedidos()
+            fecha_dt = None
+            for formato in ("%Y-%m-%d", "%d/%m/%Y"):
+                try:
+                    fecha_dt = datetime.strptime(f_act, formato)
+                    break
+                except ValueError:
+                    continue
+            if fecha_dt:
+                nueva = (fecha_dt + timedelta(days=int(e_dias.get()))).strftime("%Y-%m-%d")
+                actualizar_pedido_db(id_r, {"fecha_limite": nueva})
+                v.destroy()
+                self.mostrar_pedidos()
+            else:
+                print(f"Error: No se pudo reconocer el formato de fecha: {f_act}")
         ctk.CTkButton(v, text="Extender", command=confirm).pack()
 
     def abrir_ventana_nuevo_pedido(self):
