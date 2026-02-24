@@ -1,40 +1,39 @@
+# PerezBoost Manager V14.0 🤖 (Auto-Pilot Ops)
 
-# PerezBoost Manager V13.0 📈 (The BI Era)
+**Enterprise-grade management & Business Automation suite** designed for high-performance Elo Boosting services. A **Stateful Hybrid Architecture** that transforms raw operational data into actionable financial insights and automates daily workflows.
 
-**Enterprise-grade management & Business Intelligence suite** designed for high-performance Elo Boosting services. A **Stateful Hybrid Architecture** that transforms raw operational data into actionable financial insights.
-
-**Version:** 13.0 | **Focus:** Data Intelligence & Financial Integrity | **Stack:** Python 3.10+, PostgreSQL, Streamlit, Plotly, CustomTkinter.
+**Version:** 14.0 | **Focus:** Workflow Automation, Auto-Pilot & Payroll | **Stack:** Python 3.10+, PostgreSQL, Streamlit, Plotly, CustomTkinter.
 
 ---
 
-## 🚀 What's New in V13.0 (The BI Era)
+## 🚀 What's New in V14.0 (Auto-Pilot Ops)
 
-* **💎 Cash-Basis Financial Logic:** Refactored the entire accounting engine. KPIs, daily profit, and analytics now strictly follow a  **"Realized Payment"**, ensuring the dashboard reflects actual cash flow, not just projected revenue.
-* **📊 GitAnalytics BI Module:** Implementation of advanced data visualization using  **Plotly** :
-  * **Quality-Value Matrix:** Scatter plots correlating Booster Win Rates vs. Revenue Generated.
-  * **Financial Run-Rate:** Cumulative area charts for real-time liquidity tracking.
-  * **Efficiency Rankings:** Heuristic scoring based on delivery speed and game performance.
-* **🛡️ Secure Validation Gate (Management Tab):** A dedicated treasury module designed for  **one-way payment confirmation** . Data integrity is protected via read-only stateful forms, preventing accidental overrides during mass disbursements.
-* **🎨 Unified Emerald UX:** Standardized UI/UX with a high-contrast  **Emerald Green theme** . 2026-compliant Streamlit syntax (using `width='stretch'`) for a fully responsive enterprise experience.
-* **⚙️ Centralized Versioning:** Global version control injected via `.env` architecture, syncing the Desktop Engine, Discord Notifiers, and the Web Dashboard.
+* **🤖 Background Sentinel (Auto-Pilot):** Implementation of a multi-threaded background daemon that scans the database continuously, triggering automated 24-hour risk alerts for overdue orders without blocking the main UI thread.
+* **🔀 Segregated Notification Architecture:** Multi-channel Discord Webhook integration. Operations are strictly divided into three tiers: General Logs, Hall of Fame (Ranking), and Red Alerts (Critical overdue monitoring for CEOs).
+* **📑 1-Click Executive Close:** Automated End-of-Day (EOD) financial reporting. Generates a comprehensive breakdown of gross sales, staff payouts, ranking pools, and net profit, pushing it directly to Discord.
+* **💸 Bulk Payout Engine (Payroll):** Replaced manual debt calculation with an automated CSV generator that exports consolidated pending balances per staff member.
+* **🛡️ Bulletproof Data Parsing:** Overhauled the date-handling logic across the entire software. The new multi-format parser silently catches and normalizes irregular date inputs (slashes, hyphens) to ISO 8601 standard, preventing fatal system crashes.
 
 ---
 
 ## 🗺️ Engineering Roadmap
 
-| **Version** | **Codename**       | **Status**      | **Key Objective**                                                                       |
-| ----------------- | ------------------------ | --------------------- | --------------------------------------------------------------------------------------------- |
-| **V10-V12** | **Foundations**    | ✅**Completed** | Hybrid Sync, Cloud Engine, and Mobile Dispatch Inventory.                                     |
-| **V13.0**   | **The BI Era**     | ✅**Deployed**  | **Advanced Data Mining:**Financial Truth Logic, Plotly Analytics, and Emerald UI consistency. |
-| **V14.0**   | **Auto-Pilot Ops** | 🏗️**In Dev**  | **Automated Payouts:**Bulk JSON/CSV dispersion files & "Red Alert" Discord Webhooks for KPIs. |
-| **V15.0**   | **Scale Master**   | 📅**Planned**   | **SaaS Multi-Tenancy:**Data isolation for multiple teams and full Dockerization.              |
+| **Version** | **Codename**           | **Status**      | **Key Objective**                                                                                         |
+| ----------------- | ---------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **V13.0**   | **The BI Era**         | ✅**Completed** | **Advanced Data Mining:**Financial Truth Logic, Plotly Analytics, and Emerald UI consistency.                   |
+| **V14.0**   | **Auto-Pilot Ops**     | ✅**Deployed**  | **Automated Workflows:**Background Sentinel, Bulk CSV Payroll, Executive Discord Reporting & Alert segregation. |
+| **V15.0**   | **Scale Master**       | 🏗️**In Dev**  | **SaaS Multi-Tenancy & RBAC:**Data isolation via Tenant IDs, Dockerization, and Owner vs. Admin Access Control. |
+| **V16.0**   | **Enterprise Routing** | 📅**Planned**   | **Smart Dispatcher:**Algorithmic order assignment, Discord Bot 2-way sync (Click-to-claim orders).              |
+
+---
 
 ## 🛠️ Tech Stack & Optimization
 
 * **Data Engine:** PostgreSQL (Cloud/Supabase) & SQLite (Local) with atomic transaction handling.
+* **Automation:** Python `threading` for non-blocking background daemons and `requests` for robust API communication.
 * **Analytics:** High-performance data processing via `pandas` and interactive visualization with `Plotly Express`.
-* **Reliability:** RAM Caching with intelligent TTL and 2026-standard responsive layouts.
-* **Security:** Multi-layer environment protection and base64-encoded tokenization for staff telemetry.
+* **Reliability:** RAM Caching with intelligent TTL and bulletproof try-except wrappers for data normalization.
+* **Security:** Multi-layer environment protection, segregated webhook routing, and base64-encoded tokenization for staff telemetry.
 
 ---
 
@@ -52,7 +51,7 @@ pip install -r requirements.txt
 
 **2. Configure Environment:**
 
-Create a `.env` file with `APP_VERSION=V13.0`, `DATABASE_URL`, and `ADMIN_PASSWORD`.
+Create a `.env` file with `APP_VERSION=V14.0`, `DATABASE_URL`, and `ADMIN_PASSWORD`. Ensure your database includes the `sistema_config` table for Webhook storage.
 
 **3. Launch:**
 
