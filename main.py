@@ -163,7 +163,6 @@ class PerezBoostApp(ctk.CTk):
         style.map("Treeview", background=[('selected', '#1f538d')])
 
     def copiar_info_booster(self):
-
         if not self.tabla_pedidos: return
         sel = self.tabla_pedidos.selection()
         if not sel: return
@@ -175,36 +174,40 @@ class PerezBoostApp(ctk.CTk):
         cuenta = val[4] 
         fecha_raw = str(val[6])
 
+        nota_cuenta = "FRESH"
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute("SELECT notas FROM pedidos WHERE id = ?", (id_pedido,))
+            res = cursor.fetchone()
+            if res and res[0]:
+                nota_cuenta = res[0]
+            conn.close()
+        except Exception as e:
+            print(f"Error buscando nota: {e}")
         token_raw = f"PB-{id_pedido}".encode('utf-8')
         token_seguro = base64.urlsafe_b64encode(token_raw).decode('utf-8')
-
         fecha_bonita = fecha_raw
         try:
             meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-
             fecha_limpia = fecha_raw.split(' ')[0]
-
             dt = None
             if "-" in fecha_limpia:
                 dt = datetime.strptime(fecha_limpia, "%Y-%m-%d")
             elif "/" in fecha_limpia:
                 dt = datetime.strptime(fecha_limpia, "%d/%m/%Y")
-            
             if dt:
                 fecha_bonita = f"{dt.day} {meses[dt.month - 1]}"
-                
         except Exception as e:
             print(f"Error formateando fecha: {e}")
-
         URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
-        texto_final = f"{cuenta} - Límite: {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
-
+        texto_final = f"{cuenta} [{nota_cuenta.upper()}] - Límite: {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
         self.clipboard_clear()
         self.clipboard_append(texto_final)
         self.update() 
-
         print(f"✅ Copiado exitoso: {texto_final}")
+        messagebox.showinfo("Copiado", f"Info copiada al portapapeles:\n\n{texto_final}")
         
     # =========================================================================
     # SECCIÓN: DASHBOARD
@@ -862,6 +865,7 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkButton(footer, text="📝 Editar", fg_color="#f39c12", command=self.abrir_ventana_editar_pedido).pack(side="left", padx=5)
         ctk.CTkButton(footer, text="✅ Finalizar", fg_color="#2ecc71", command=self.abrir_ventana_finalizar).pack(side="right")
         ctk.CTkButton(footer, text="🚫 Abandono", fg_color="#e74c3c", command=self.abrir_ventana_reportar_abandono).pack(side="right", padx=10)
+        ctk.CTkButton(footer, text="🔨 Ban", fg_color="#8b0000", hover_color="#5a0000", command=self.reportar_ban_seleccionado).pack(side="right")
 
     def filtrar_pedidos(self, event=None):
         query = self.entry_busqueda.get().lower().strip()
@@ -954,7 +958,7 @@ class PerezBoostApp(ctk.CTk):
 
         self.tabla_historial.tag_configure('terminado', foreground='#2ecc71')
         self.tabla_historial.tag_configure('abandonado', foreground='#e74c3c')
-        
+        self.tabla_historial.tag_configure('baneada', foreground='#8b0000')
         self.tabla_historial.pack(padx=20, pady=10, fill="both", expand=True)
 
         self.panel_total_h = ctk.CTkFrame(self.content_frame, fg_color="#1a1a1a", corner_radius=10, height=40)
@@ -1039,23 +1043,30 @@ class PerezBoostApp(ctk.CTk):
                             except: continue
                     except: pass
 
-                    tag = 'terminado' if "TERMINADO" in est_str else 'abandonado'
+                    if "TERMINADO" in est_str:
+                        tag = 'terminado'
+                    elif "BANEADA" in est_str:
+                        tag = 'baneada'
+                    else:
+                        tag = 'abandonado'
+
+                    if "BANEADA" in est_str:
+                        wr_visual = "N/A"
+                    else:
+                        wr_visual = f"{wr}%" if wr is not None else "-"
 
                     self.tabla_historial.insert("", "end", values=(
                         contador_visual, 
                         booster, 
                         f"{user} -> {elo_fin}",     
-                        f"{wr}%" if wr else "-", 
+                        wr_visual,
                         f_v(ini_raw), 
                         f_v(fin_raw), 
                         duracion, 
                         est_str    
                     ), tags=(tag,))
-                    
                     contador_visual += 1
-            
             self.lbl_totales_h.configure(text=f"MOSTRANDO {len(self.tabla_historial.get_children())} REGISTROS")
-            
         except Exception as e:
             print(f"Error en historial: {e}")
 
@@ -2110,14 +2121,70 @@ class PerezBoostApp(ctk.CTk):
         sel = self.tabla_pedidos.selection()
         if not sel: return
         id_r = self.tabla_pedidos.item(sel)['values'][1]
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 350, 400); v.attributes("-topmost", True)
-        e_elo = ctk.CTkEntry(v, placeholder_text="Elo dejado..."); e_elo.pack(pady=10)
-        e_wr = ctk.CTkEntry(v, placeholder_text="WR dejado..."); e_wr.pack(pady=10)
+        cuenta = self.tabla_pedidos.item(sel)['values'][4] 
+        
+        v = ctk.CTkToplevel(self)
+        self.centrar_ventana(v, 350, 450)
+        v.attributes("-topmost", True)
+        
+        ctk.CTkLabel(v, text="🚫 REPORTAR DROP", font=("Arial", 16, "bold"), text_color="#e74c3c").pack(pady=(20, 10))
+        
+        e_elo = ctk.CTkEntry(v, placeholder_text="Elo dejado...", width=250)
+        e_elo.pack(pady=10)
+        
+        e_wr = ctk.CTkEntry(v, placeholder_text="WR dejado (Ej: 45)...", width=250)
+        e_wr.pack(pady=10)
+        
+        e_notas = ctk.CTkEntry(v, placeholder_text="Motivo (Ej: Troll en promo)...", width=250)
+        e_notas.pack(pady=10)
+        
         def confirm():
-            if registrar_abandono_db(id_r, e_elo.get().upper(), e_wr.get()):
-                registrar_log("ABANDONO_PEDIDO", f"Pedido #{id_r} marcado como abandonado. Elo dejado: {e_elo.get()}")
-                v.destroy(); self.mostrar_pedidos()
-        ctk.CTkButton(v, text="Confirmar DROP", fg_color="#e74c3c", command=confirm).pack()
+            elo_dejado = e_elo.get().upper().strip()
+            wr_dejado = e_wr.get().strip()
+            nota_texto = e_notas.get().strip()
+            
+            if registrar_abandono_db(id_r, elo_dejado, wr_dejado):
+                registrar_log("ABANDONO_PEDIDO", f"Pedido #{id_r} Drop. Elo: {elo_dejado} | WR: {wr_dejado} | Razón: {nota_texto}")
+                try:
+                    detalles = []
+                    if elo_dejado: detalles.append(elo_dejado)
+                    if wr_dejado: detalles.append(f"{wr_dejado}% WR")
+                    if nota_texto: detalles.append(nota_texto)
+                    nota_final = "ABANDONADA"
+                    if detalles:
+                        nota_final += ": " + ", ".join(detalles)
+                    
+                    conn = conectar()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE inventario SET descripcion = ? WHERE user_pass = ?", (nota_final, cuenta.strip()))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"Error guardando nota en inventario: {e}")
+                v.destroy()
+                self.mostrar_pedidos()
+                
+        ctk.CTkButton(v, text="Confirmar DROP", fg_color="#e74c3c", hover_color="#c0392b", height=40, command=confirm).pack(pady=20)
+        
+    def reportar_ban_seleccionado(self):
+        sel = self.tabla_pedidos.selection()
+        if not sel: return
+        
+        val_fila = self.tabla_pedidos.item(sel)['values']
+        id_r = val_fila[1]
+        cuenta = val_fila[4]
+
+        if messagebox.askyesno("🔨 Confirmar Ban", f"¿Estás seguro de marcar la cuenta '{cuenta}' como BANEADA?\n\nDesaparecerá de activos y quedará en el historial.", parent=self):
+            hoy_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            actualizar_pedido_db(id_r, {
+                "estado": "Baneada",
+                "fecha_fin_real": hoy_str,
+                "elo_final": "BANEADA",
+                "wr": None
+            })
+            
+            registrar_log("CUENTA_BANEADA", f"El pedido #{id_r} ({cuenta}) fue aniquilado (Ban).")
+            self.mostrar_pedidos()
 
     def abrir_ventana_registro(self):
         v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 450); v.attributes("-topmost", True)

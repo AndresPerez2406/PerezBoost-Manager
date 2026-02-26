@@ -54,6 +54,10 @@ def inicializar_db():
         cursor.execute('ALTER TABLE pedidos ADD COLUMN pago_realizado INTEGER DEFAULT 0')
     except:
         pass
+    try:
+        cursor.execute('ALTER TABLE pedidos ADD COLUMN notas TEXT DEFAULT "FRESH"')
+    except:
+        pass
 
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')
@@ -139,9 +143,13 @@ def actualizar_inventario_db(id_inv, datos):
 # SECCIÓN 3: GESTIÓN DE PEDIDOS
 # ==========================================
 
+
 def crear_pedido(id_booster, nombre_booster, id_cuenta, user_pass, elo, fecha_fin):
     conn = conectar(); cursor = conn.cursor(); exito = False
     try:
+        cursor.execute("SELECT descripcion FROM inventario WHERE id = ?", (id_cuenta,))
+        res = cursor.fetchone()
+        nota_actual = res[0] if res and res[0] else "FRESH"
 
         fecha_hoy = datetime.now().strftime("%Y-%m-%d %H:%M")
         
@@ -149,11 +157,9 @@ def crear_pedido(id_booster, nombre_booster, id_cuenta, user_pass, elo, fecha_fi
             f_limite = datetime.strptime(fecha_fin, "%d/%m/%Y").strftime("%Y-%m-%d")
         else:
             f_limite = str(fecha_fin).split(' ')[0]
-
         cursor.execute('''INSERT INTO pedidos (booster_id, booster_nombre, user_pass, elo_inicial, 
-                          fecha_inicio, fecha_limite, estado) VALUES (?, ?, ?, ?, ?, ?, 'En progreso')''', 
-                       (id_booster, nombre_booster, user_pass, elo, fecha_hoy, f_limite))
-        
+                          fecha_inicio, fecha_limite, estado, notas) VALUES (?, ?, ?, ?, ?, ?, 'En progreso', ?)''', 
+                       (id_booster, nombre_booster, user_pass, elo, fecha_hoy, f_limite, nota_actual))
         cursor.execute("DELETE FROM inventario WHERE id = ?", (id_cuenta,))
         conn.commit(); exito = True
     except Exception as e: 
@@ -174,13 +180,14 @@ def obtener_pedidos_activos():
 def registrar_abandono_db(id_pedido, elo_dejado, wr_dejado):
     conn = conectar(); cursor = conn.cursor(); exito = False
     try:
-        cursor.execute("SELECT user_pass, elo_inicial FROM pedidos WHERE id = ?", (id_pedido,))
+        cursor.execute("SELECT user_pass, elo_inicial, notas FROM pedidos WHERE id = ?", (id_pedido,))
         datos = cursor.fetchone()
         if not datos: return False
-        u_p, elo_orig = datos
+        u_p, elo_orig, nota_antigua = datos
+        
         fecha_fin = datetime.now().strftime("%Y-%m-%d %H:%M")
-        nota = f"⚠️ ABANDONO. Dejada en: {elo_dejado} ({wr_dejado}% WR)"
-        cursor.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?) ON CONFLICT(user_pass) DO UPDATE SET elo_tipo=?, descripcion=?", (u_p, elo_orig, nota, elo_orig, nota))
+        cursor.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?) ON CONFLICT(user_pass) DO UPDATE SET elo_tipo=?, descripcion=?", (u_p, elo_orig, nota_antigua, elo_orig, nota_antigua))
+        
         cursor.execute("UPDATE pedidos SET estado='Abandonado', elo_final=?, wr=?, fecha_fin_real=? WHERE id=?", (elo_dejado, wr_dejado, fecha_fin, id_pedido))
         conn.commit(); exito = True
     finally: conn.close();
@@ -254,7 +261,7 @@ def obtener_historial_completo():
                estado,
                wr
         FROM pedidos 
-        WHERE estado IN ('Terminado', 'Abandonado') 
+        WHERE estado IN ('Terminado', 'Abandonado', 'Baneada')
         ORDER BY fecha_fin_real DESC, id DESC
     """)
     data = cursor.fetchall()

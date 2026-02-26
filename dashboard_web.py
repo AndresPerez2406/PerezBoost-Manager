@@ -825,7 +825,7 @@ with tab_tracking:
     query_activos = """
         SELECT id, booster_nombre, elo_inicial, user_pass, opgg, estado 
         FROM pedidos 
-        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado') 
+        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado', 'Baneada') 
         ORDER BY id DESC
     """
     df_activos = run_query(query_activos)
