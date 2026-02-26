@@ -47,7 +47,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
             conn_cloud = psycopg2.connect(**connection_params)
         cur_cloud = conn_cloud.cursor()
 
-        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE, binance TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
@@ -63,18 +63,45 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION,
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
                 pago_realizado INTEGER DEFAULT 0,
-                opgg TEXT
+                opgg TEXT,
+                notas TEXT
             );
         """)
+
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS notas TEXT DEFAULT 'FRESH';")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS opgg TEXT DEFAULT '';")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS binance TEXT DEFAULT '';")
+        except: pass
+            
         conn_cloud.commit()
 
         def migrar_tabla(origen, destino):
-            cur_local.execute(f"SELECT * FROM {origen}")
+
+            if origen == "pedidos":
+                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, notas FROM pedidos")
+            elif origen == "boosters":
+                cur_local.execute("SELECT id, nombre FROM boosters")
+            else:
+                cur_local.execute(f"SELECT * FROM {origen}")
+                
             filas = cur_local.fetchall()
             if not filas: return
 
             def limpiar(v): return None if v in ["NULL", "NONE", ""] else v
-            filas_L = [tuple([limpiar(x) for x in f]) for f in filas]
+
+            filas_L = []
+            for f in filas:
+                fila_lista = list(f)
+                if destino == "pedidos":
+                    wr_val = fila_lista[9]
+                    if isinstance(wr_val, str):
+                        wr_clean = wr_val.replace('%', '').replace('N/A', '').strip()
+                        try: fila_lista[9] = float(wr_clean) if wr_clean else None
+                        except: fila_lista[9] = None
+                
+                filas_L.append(tuple([limpiar(x) for x in fila_lista]))
 
             if destino == "pedidos":
                 query = """
@@ -82,7 +109,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         id, booster_id, booster_nombre, user_pass, elo_inicial, 
                         fecha_inicio, fecha_limite, estado, elo_final, wr, 
                         fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
-                        ajuste_valor, pago_realizado, opgg
+                        ajuste_valor, pago_realizado, notas
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         booster_id = EXCLUDED.booster_id,
@@ -100,10 +127,14 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         ganancia_empresa = EXCLUDED.ganancia_empresa,
                         ajuste_valor = EXCLUDED.ajuste_valor,
                         pago_realizado = EXCLUDED.pago_realizado,
-                        opgg = CASE
-                                  WHEN EXCLUDED.opgg IS NULL OR EXCLUDED.opgg = '' THEN pedidos.opgg
-                                  ELSE EXCLUDED.opgg
-                               END;
+                        notas = EXCLUDED.notas;
+                """
+                extras.execute_batch(cur_cloud, query, filas_L)
+            elif destino == "boosters":
+                query = """
+                    INSERT INTO boosters (id, nombre) VALUES (%s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        nombre = EXCLUDED.nombre;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             else:
@@ -117,6 +148,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         migrar_tabla("config_precios", "config_precios")
         migrar_tabla("logs_auditoria", "logs")
         migrar_tabla("pedidos", "pedidos")
+        migrar_tabla("sistema_config", "sistema_config")
 
         for t in ["pedidos", "boosters", "inventario", "logs"]:
             try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
@@ -185,9 +217,21 @@ def logica_bajar_de_nube(callback_exito, callback_error):
             )
         """)
 
-        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez"]:
+        # 🛡️ 1. BACKUP LOCAL EN MEMORIA RAM (Para proteger lo que no queremos que la nube pise)
+        cur_local.execute("SELECT id, opgg FROM pedidos WHERE opgg IS NOT NULL AND opgg != ''")
+        respaldos_opgg = dict(cur_local.fetchall())
+
+        cur_local.execute("SELECT id, binance FROM boosters WHERE binance IS NOT NULL AND binance != ''")
+        respaldos_binance = dict(cur_local.fetchall())
+
+        cur_local.execute("SELECT clave, valor FROM sistema_config WHERE clave LIKE '%webhook%'")
+        respaldos_webhooks = dict(cur_local.fetchall())
+
+        # 2. BORRAR TABLAS LOCALES (Agregamos sistema_config para que bajen las tarifas/configs)
+        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez", "sistema_config"]:
             cur_local.execute(f"DELETE FROM {t}")
 
+        # 3. BAJAR DATOS DE LA NUBE
         def bajar(tabla_nube, tabla_local):
             cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
             filas = cur_cloud.fetchall()
@@ -201,7 +245,18 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         bajar("logs", "logs_auditoria")
         bajar("pedidos", "pedidos")
         bajar("wallet_perez", "wallet_perez")
-        
+        bajar("sistema_config", "sistema_config")
+
+        # 🛡️ 4. RESTAURAR DATOS LOCALES EXCLUIDOS DE LA SOBRESCRITURA
+        for pid, opgg in respaldos_opgg.items():
+            cur_local.execute("UPDATE pedidos SET opgg = ? WHERE id = ?", (opgg, pid))
+            
+        for bid, bnc in respaldos_binance.items():
+            cur_local.execute("UPDATE boosters SET binance = ? WHERE id = ?", (bnc, bid))
+            
+        for clave, valor in respaldos_webhooks.items():
+            cur_local.execute("INSERT OR REPLACE INTO sistema_config (clave, valor) VALUES (?, ?)", (clave, valor))
+
         conn_local.commit()
         conn_local.close()
         conn_cloud.close()

@@ -52,12 +52,16 @@ def inicializar_db():
 
     try:
         cursor.execute('ALTER TABLE pedidos ADD COLUMN pago_realizado INTEGER DEFAULT 0')
-    except:
-        pass
+    except: pass
     try:
         cursor.execute('ALTER TABLE pedidos ADD COLUMN notas TEXT DEFAULT "FRESH"')
-    except:
-        pass
+    except: pass
+    try:
+        cursor.execute('ALTER TABLE pedidos ADD COLUMN opgg TEXT DEFAULT ""')
+    except: pass
+    try:
+        cursor.execute('ALTER TABLE boosters ADD COLUMN binance TEXT DEFAULT ""')
+    except: pass
 
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')

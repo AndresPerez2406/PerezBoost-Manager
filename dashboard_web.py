@@ -823,7 +823,7 @@ with tab_tracking:
             st.rerun()
 
     query_activos = """
-        SELECT id, booster_nombre, elo_inicial, user_pass, opgg, estado 
+        SELECT id, booster_nombre, elo_inicial, user_pass, opgg, estado, notas 
         FROM pedidos 
         WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado', 'Baneada') 
         ORDER BY id DESC
@@ -838,6 +838,8 @@ with tab_tracking:
         opciones_selector = []
         for i, row in enumerate(df_activos.itertuples(), 1):
             link_val = row.opgg if pd.notna(row.opgg) and str(row.opgg).strip() != "" else None
+            nota_val = row.notas if pd.notna(row.notas) and str(row.notas).strip() != "" else "FRESH"
+            
             lista_ids_activos.append(row.id)
 
             tracking_data.append({
@@ -845,6 +847,7 @@ with tab_tracking:
                 "Staff": row.booster_nombre,
                 "Elo": row.elo_inicial,
                 "Cuenta (User:Pass)": row.user_pass,
+                "Notas": nota_val,
                 "Link OP.GG": link_val,
                 "Estado": row.estado
             })
@@ -857,6 +860,7 @@ with tab_tracking:
             width='stretch',
             hide_index=True,
             column_config={
+                "Notas": st.column_config.TextColumn("Notas", width="medium"),
                 "Link OP.GG": st.column_config.LinkColumn(
                     "Link OP.GG", 
                     help="Haz clic para abrir el perfil",
@@ -865,6 +869,7 @@ with tab_tracking:
             }
         )
 
+        st.divider()
         st.divider()
 
         st.subheader("🛠️ Gestión de Enlaces (Corrección de Errores)")
