@@ -176,7 +176,7 @@ def obtener_pedidos_activos():
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, booster_nombre, elo_inicial, user_pass, fecha_inicio, fecha_limite FROM pedidos WHERE estado = 'En progreso'")
+    cursor.execute("SELECT id, booster_nombre, elo_inicial, user_pass, fecha_inicio, fecha_limite FROM pedidos WHERE estado = 'En progreso' ORDER BY fecha_limite ASC")
     data = cursor.fetchall()
     conn.close()
     return data

@@ -1853,13 +1853,38 @@ class PerezBoostApp(ctk.CTk):
 
         val = self.tabla_pedidos.item(sel)['values']
         id_r = val[1]
+        booster_actual = val[2]
         
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 400, 580); v.attributes("-topmost", True)
+        v = ctk.CTkToplevel(self)
+        self.centrar_ventana(v, 400, 580)
+        v.attributes("-topmost", True)
         v.title(f"Editar Pedido #{id_r}")
         
         entradas = {}
+
+        import sqlite3
+        try:
+            conn = sqlite3.connect("perezboost.db")
+            cur = conn.cursor()
+            cur.execute("SELECT nombre FROM boosters ORDER BY nombre ASC")
+            nombres_staff = [row[0] for row in cur.fetchall()]
+            conn.close()
+        except Exception as e:
+            nombres_staff = [booster_actual]
+            
+        if not nombres_staff:
+            nombres_staff = ["Sin Staff"]
+
+        if booster_actual not in nombres_staff and booster_actual:
+            nombres_staff.insert(0, booster_actual)
+
+        ctk.CTkLabel(v, text="Staff:", font=("Arial", 12, "bold")).pack(pady=(10, 0))
+        combo_staff = ctk.CTkComboBox(v, values=nombres_staff, width=280)
+        combo_staff.set(booster_actual) 
+        combo_staff.pack(pady=5)
+        entradas["booster_nombre"] = combo_staff
+
         campos = [
-            ("Staff:", "booster_nombre", val[2]),
             ("Elo Inicial:", "elo_inicial", val[3]),
             ("Cuenta / User:", "user_pass", val[4]), 
             ("Fecha Inicio (D/M/Y):", "fecha_inicio", val[5]),
@@ -1869,7 +1894,7 @@ class PerezBoostApp(ctk.CTk):
         for lab, col, act in campos:
             ctk.CTkLabel(v, text=lab, font=("Arial", 12, "bold")).pack(pady=(10, 0))
             e = ctk.CTkEntry(v, width=280)
-            e.insert(0, act)
+            e.insert(0, act if act else "")
             e.pack(pady=5)
             entradas[col] = e
 
@@ -1889,12 +1914,12 @@ class PerezBoostApp(ctk.CTk):
 
                 actualizar_pedido_db(id_r, datos_nuevos)
                 
-                registrar_log("EDICION_PEDIDO", f"Pedido #{id_r} editado manualmente.")
+                registrar_log("EDICION_PEDIDO", f"Pedido #{id_r} editado manualmente. Staff: {datos_nuevos['booster_nombre']}")
                 v.destroy()
                 self.mostrar_pedidos()
                 
             except Exception as ex:
-                messagebox.showerror("Error de Formato", f"Revisa las fechas (D/M/Y).\nError: {ex}", parent=v)
+                messagebox.showerror("Error", f"Error al guardar:\n{ex}", parent=v)
 
         ctk.CTkButton(v, text="💾 Guardar Cambios", fg_color="#27ae60", hover_color="#1e8449",
                        height=40, font=("Arial", 12, "bold"), command=save).pack(pady=25)

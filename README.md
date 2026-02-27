@@ -1,62 +1,70 @@
-# PerezBoost Manager V14.0 🤖 (Auto-Pilot Ops)
 
-**Enterprise-grade management & Business Automation suite** designed for high-performance Elo Boosting services. A **Stateful Hybrid Architecture** that transforms raw operational data into actionable financial insights and automates daily workflows.
+# PerezBoost Manager V16.0 🚀 (Hybrid Master & Cloud Orchestration)
 
-**Version:** 14.0 | **Focus:** Workflow Automation, Auto-Pilot & Payroll | **Stack:** Python 3.10+, PostgreSQL, Streamlit, Plotly, CustomTkinter.
+**Enterprise-grade Business Automation suite**. This version marks the transition from a local script to a  **Fully Containerized Ecosystem** , integrating a high-performance Desktop GUI with a real-time Analytics Dashboard via Docker Orchestration.
+
+**Version:** 16.0 | **Focus:** Infrastructure as Code (IaC), Containerization & GUI Forwarding | **Stack:** Docker, Python 3.12, PostgreSQL/SQLite, Streamlit, CustomTkinter (X11).
 
 ---
 
-## 🚀 What's New in V14.0 (Auto-Pilot Ops)
+## 🚀 What's New in V16.0 (The Container Era)
 
-* **🤖 Background Sentinel (Auto-Pilot):** Implementation of a multi-threaded background daemon that scans the database continuously, triggering automated 24-hour risk alerts for overdue orders without blocking the main UI thread.
-* **🔀 Segregated Notification Architecture:** Multi-channel Discord Webhook integration. Operations are strictly divided into three tiers: General Logs, Hall of Fame (Ranking), and Red Alerts (Critical overdue monitoring for CEOs).
-* **📑 1-Click Executive Close:** Automated End-of-Day (EOD) financial reporting. Generates a comprehensive breakdown of gross sales, staff payouts, ranking pools, and net profit, pushing it directly to Discord.
-* **💸 Bulk Payout Engine (Payroll):** Replaced manual debt calculation with an automated CSV generator that exports consolidated pending balances per staff member.
-* **🛡️ Bulletproof Data Parsing:** Overhauled the date-handling logic across the entire software. The new multi-format parser silently catches and normalizes irregular date inputs (slashes, hyphens) to ISO 8601 standard, preventing fatal system crashes.
+* **🐳 Full Dockerization:** The entire ecosystem (Desktop App + Web Dashboard) now runs in isolated Linux containers. No more "it works on my machine" errors; the environment is identical everywhere.
+* **🖥️ Hybrid X11 Forwarding:** Implementation of an X11 bridge (VcXsrv) allowing the high-performance Python GUI to be rendered natively on Windows while the logic stays secured inside a Docker container.
+* **🧩 Intelligent UI (Smart-ComboBox):** Replaced manual staff entry with a dynamic database-linked ComboBox. This enforces data integrity by only allowing assignments to registered staff members.
+* **🌐 Unified Orchestration:** Single-command deployment using `docker-compose`. Automatic synchronization between the management desktop app and the staff-facing web dashboard.
+* **🛠️ Tech Debt Cleanup:** Upgraded to Python 3.12-slim for better performance and reduced image size. Fixed UTF-8 emoji rendering issues across Linux/Windows boundaries.
 
 ---
 
 ## 🗺️ Engineering Roadmap
 
-| **Version** | **Codename**           | **Status**      | **Key Objective**                                                                                         |
-| ----------------- | ---------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| **V13.0**   | **The BI Era**         | ✅**Completed** | **Advanced Data Mining:**Financial Truth Logic, Plotly Analytics, and Emerald UI consistency.                   |
-| **V14.0**   | **Auto-Pilot Ops**     | ✅**Deployed**  | **Automated Workflows:**Background Sentinel, Bulk CSV Payroll, Executive Discord Reporting & Alert segregation. |
-| **V15.0**   | **Scale Master**       | 🏗️**In Dev**  | **SaaS Multi-Tenancy & RBAC:**Data isolation via Tenant IDs, Dockerization, and Owner vs. Admin Access Control. |
-| **V16.0**   | **Enterprise Routing** | 📅**Planned**   | **Smart Dispatcher:**Algorithmic order assignment, Discord Bot 2-way sync (Click-to-claim orders).              |
+| **Version** | **Codename**         | **Status**      | **Key Objective**                                               |
+| ----------------- | -------------------------- | --------------------- | --------------------------------------------------------------------- |
+| **V14.0**   | **Auto-Pilot Ops**   | ✅**Completed** | Background Sentinels, Discord EOD Reporting, and Bulk Payroll CSV.    |
+| **V15.0**   | **Scale Master**     | ✅**Completed** | Dockerization, RBAC preparation, and Python 3.12 Migration.           |
+| **V16.0**   | **Hybrid Master**    | 🚀**Deployed**  | X11 Forwarding, Smart UI Bindings, and Unified Compose Orchestration. |
+| **V17.0**   | **Smart Dispatcher** | 📅**Planned**   | Algorithmic order assignment & 2-way Discord Bot Sync.                |
 
 ---
 
-## 🛠️ Tech Stack & Optimization
+## 🛠️ Infrastructure & Tech Stack
 
-* **Data Engine:** PostgreSQL (Cloud/Supabase) & SQLite (Local) with atomic transaction handling.
-* **Automation:** Python `threading` for non-blocking background daemons and `requests` for robust API communication.
-* **Analytics:** High-performance data processing via `pandas` and interactive visualization with `Plotly Express`.
-* **Reliability:** RAM Caching with intelligent TTL and bulletproof try-except wrappers for data normalization.
-* **Security:** Multi-layer environment protection, segregated webhook routing, and base64-encoded tokenization for staff telemetry.
+* **Orchestration:** Docker Compose (Multi-container architecture).
+* **GUI Bridge:** VcXsrv / XLaunch (X11 Server for Windows).
+* **Backend Engine:** Python 3.12 (Asynchronous execution & multi-threading).
+* **Data Layer:** PostgreSQL (Cloud) & SQLite (Local Persistent Volume).
+* **Frontend:** Streamlit (Web) & CustomTkinter (Desktop) with Emerald UI Theme.
 
 ---
 
-## ⚙️ Quick Start (Local)
+## ⚙️ Quick Start (The Docker Way)
 
-**1. Clone & Install:**
+**1. Prerequisites:**
+
+* Install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+* Install [VcXsrv (XLaunch)](https://sourceforge.net/projects/vcxsrv/) for GUI rendering.
+
+**2. Setup X11 Bridge:**
+
+1. Run  **XLaunch** .
+2. Select: `Multiple Windows` -> `Start no client`.
+3. **CRITICAL:** Check `Disable access control`.
+
+**3. Launch System:**
 
 **Bash**
 
 ```
 git clone https://github.com/AndresPerez2406/PerezBoost-Manager.git
 cd PerezBoost-Manager
-pip install -r requirements.txt
+docker compose up --build -d
 ```
 
-**2. Configure Environment:**
+**4. Access:**
 
-Create a `.env` file with `APP_VERSION=V14.0`, `DATABASE_URL`, and `ADMIN_PASSWORD`. Ensure your database includes the `sistema_config` table for Webhook storage.
-
-**3. Launch:**
-
-* **Desktop Engine:** `python main.py`
-* **Performance Dashboard:** `streamlit run dashboard_web.py`
+* **Desktop App:** Will pop up on your screen automatically.
+* **Web Dashboard:** Navigate to `http://localhost:8501`.
 
 ---
 

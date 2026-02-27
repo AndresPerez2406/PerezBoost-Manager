@@ -205,40 +205,21 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         conn_local = sqlite3.connect(DB_LOCAL)
         cur_local = conn_local.cursor()
         cur_local.execute("PRAGMA foreign_keys = OFF;")
-
-        cur_local.execute("""
-            CREATE TABLE IF NOT EXISTS wallet_perez (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                fecha TEXT, 
-                tipo TEXT, 
-                categoria TEXT, 
-                monto REAL, 
-                descripcion TEXT
-            )
-        """)
-
-        # 🛡️ 1. BACKUP LOCAL EN MEMORIA RAM (Para proteger lo que no queremos que la nube pise)
-        cur_local.execute("SELECT id, opgg FROM pedidos WHERE opgg IS NOT NULL AND opgg != ''")
-        respaldos_opgg = dict(cur_local.fetchall())
-
-        cur_local.execute("SELECT id, binance FROM boosters WHERE binance IS NOT NULL AND binance != ''")
-        respaldos_binance = dict(cur_local.fetchall())
-
         cur_local.execute("SELECT clave, valor FROM sistema_config WHERE clave LIKE '%webhook%'")
+        
         respaldos_webhooks = dict(cur_local.fetchall())
-
-        # 2. BORRAR TABLAS LOCALES (Agregamos sistema_config para que bajen las tarifas/configs)
-        for t in ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez", "sistema_config"]:
+        
+        tablas = ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez", "sistema_config"]
+        for t in tablas:
             cur_local.execute(f"DELETE FROM {t}")
 
-        # 3. BAJAR DATOS DE LA NUBE
         def bajar(tabla_nube, tabla_local):
             cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
             filas = cur_cloud.fetchall()
             if filas:
                 placeholders = ",".join(["?"] * len(filas[0]))
                 cur_local.executemany(f"INSERT INTO {tabla_local} VALUES ({placeholders})", filas)
-
+                
         bajar("boosters", "boosters")
         bajar("inventario", "inventario")
         bajar("config_precios", "config_precios")
@@ -246,14 +227,7 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         bajar("pedidos", "pedidos")
         bajar("wallet_perez", "wallet_perez")
         bajar("sistema_config", "sistema_config")
-
-        # 🛡️ 4. RESTAURAR DATOS LOCALES EXCLUIDOS DE LA SOBRESCRITURA
-        for pid, opgg in respaldos_opgg.items():
-            cur_local.execute("UPDATE pedidos SET opgg = ? WHERE id = ?", (opgg, pid))
-            
-        for bid, bnc in respaldos_binance.items():
-            cur_local.execute("UPDATE boosters SET binance = ? WHERE id = ?", (bnc, bid))
-            
+        
         for clave, valor in respaldos_webhooks.items():
             cur_local.execute("INSERT OR REPLACE INTO sistema_config (clave, valor) VALUES (?, ?)", (clave, valor))
 
@@ -261,7 +235,7 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         conn_local.close()
         conn_cloud.close()
 
-        print("⏳ Finalizando hilos y estabilizando GUI...")
+        print("⏳ Sincronización de entrada completada. Binance y OP.GG actualizados.")
         time.sleep(1.0)
 
         if callback_exito: callback_exito()

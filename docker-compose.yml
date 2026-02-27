@@ -1,0 +1,33 @@
+services:
+
+  # --- EL DASHBOARD WEB ---
+  perezboost-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: pb_web
+    ports:
+      - "8501:8501"
+    env_file: .env
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    environment:
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+
+  # --- LA APP DE ESCRITORIO ---
+  perezboost-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pb_desktop
+    env_file: .env
+    volumes:
+      - .:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=host.docker.internal:0.0
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+    network_mode: "host"
