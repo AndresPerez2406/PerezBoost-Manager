@@ -548,7 +548,7 @@ def obtener_ranking_staff_db(filtro_fecha=None):
                ELSE 0 END), 0) as score
     FROM boosters b 
     LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
-    WHERE p.fecha_fin_real LIKE ? 
+    WHERE p.fecha_fin_real LIKE ? AND UPPER(b.nombre) != 'PEREZ'
     GROUP BY b.id, b.nombre 
     HAVING (terminados > 0 OR abandonos > 0)
     ORDER BY score DESC
@@ -562,8 +562,10 @@ def obtener_total_bote_ranking():
 
     sql = """
         SELECT COUNT(*) + COALESCE(SUM(CASE WHEN wr >= 60 THEN 1 ELSE 0 END), 0) 
-        FROM pedidos 
-        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
+        FROM pedidos
+        WHERE estado = 'Terminado'
+        AND UPPER(booster_nombre) != 'PEREZ'
+        AND fecha_fin_real LIKE ?
     """
     cursor.execute(sql, (f"{mes_actual}%",))
     resultado = cursor.fetchone()
@@ -589,12 +591,10 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
     cursor = conn.cursor()
 
     if filtro_fecha:
-
-        where_clause = "WHERE fecha_fin_real LIKE ? AND estado IN ('Terminado', 'Abandonado')"
+        where_clause = "WHERE fecha_fin_real LIKE ? AND estado IN ('Terminado', 'Abandonado') AND UPPER(booster_nombre) != 'PEREZ'"
         params = (f"{filtro_fecha}%",)
     else:
-
-        where_clause = "WHERE estado IN ('Terminado', 'Abandonado')"
+        where_clause = "WHERE estado IN ('Terminado', 'Abandonado') AND UPPER(booster_nombre) != 'PEREZ'"
         params = ()
 
     query = f"""
@@ -672,7 +672,9 @@ def obtener_saldos_pendientes_db():
             COUNT(*),
             GROUP_CONCAT(elo_final || ' ($' || pago_booster || ')', ' + ')
         FROM pedidos 
-        WHERE estado = 'Terminado' AND (pago_realizado = 0 OR pago_realizado IS NULL)
+        WHERE estado = 'Terminado' 
+        AND (pago_realizado = 0 OR pago_realizado IS NULL)
+        AND UPPER(booster_nombre) != 'PEREZ'
         GROUP BY booster_nombre
         ORDER BY SUM(pago_booster) DESC
     """)

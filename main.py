@@ -294,6 +294,8 @@ class PerezBoostApp(ctk.CTk):
                 except: wr_val = 0.0
 
                 bote_visual = 2.0 if wr_val >= 60 else 1.0
+                if str(staff).upper() == "PEREZ":
+                    bote_visual = 0.0
                 
                 sum_ventas += v_cobro
                 sum_staff += v_pago
@@ -513,6 +515,8 @@ class PerezBoostApp(ctk.CTk):
                 except: wr_val = 0.0
 
                 bote_visual = 2.0 if wr_val >= 60 else 1.0
+                if str(staff).upper() == "PEREZ":
+                    bote_visual = 0.0
                 
                 sum_ventas += v_cobro
                 sum_staff += v_pago
@@ -1306,7 +1310,11 @@ class PerezBoostApp(ctk.CTk):
 
             try: wr = float(r[9]) if r[9] else 0.0
             except: wr = 0.0
+            
             valor_bote = 2.0 if wr >= 60 else 1.0
+            if str(r[2]).upper() == "PEREZ":
+                valor_bote = 0.0
+                
             mi_neto_real = v_total_cli - v_pago_staff - valor_bote
 
             if esta_pagado == 1:
@@ -1998,10 +2006,14 @@ class PerezBoostApp(ctk.CTk):
                 if tarifa:
                     p_cli_base = float(tarifa[0])
                     g_per_base = float(tarifa[1])
-                    p_booster = (p_cli_base - g_per_base) + ajuste
-                    g_perez = (g_per_base - 1.0) - ajuste
-
                     p_cliente = p_cli_base + 1.0 if wr >= 60 else p_cli_base
+
+                    if nom_booster.upper() == "PEREZ":
+                        p_booster = 0.0  
+                        g_perez = p_cliente + ajuste 
+                    else:
+                        p_booster = (p_cli_base - g_per_base) + ajuste
+                        g_perez = (g_per_base - 1.0) - ajuste
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
@@ -2018,7 +2030,7 @@ class PerezBoostApp(ctk.CTk):
                     mes_inicio_iso = datetime.now().strftime("%Y-%m")
 
                 if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste):
-                    if var_publicar.get():
+                    if var_publicar.get() and nom_booster.upper() != "PEREZ":
                         try:
                             cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_inicio LIKE ?", (f"{mes_inicio_iso}%",))
                             num_orden_discord = cursor.fetchone()[0]

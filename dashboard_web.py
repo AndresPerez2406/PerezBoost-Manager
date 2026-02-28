@@ -79,7 +79,7 @@ def run_query(query):
     return pd.DataFrame()
 
 # ==============================================================================
-# 🎮 MODO QUIOSCO (PUBLIC-FACING LEADERBOARD - METALLIC DARK EDITION)
+# 🎮 MODO QUIOSCO
 # ==============================================================================
 
 def render_public_ranking():
@@ -152,6 +152,12 @@ def render_public_ranking():
     df_raw = run_query(query_publica)
 
     if not df_raw.empty:
+        df_raw['booster_nombre_clean'] = df_raw['booster_nombre'].astype(str).str.upper().str.strip()
+        df_raw = df_raw[df_raw['booster_nombre_clean'] != 'PEREZ'].copy()
+        if df_raw.empty:
+            st.info(f"No hay pedidos terminados del staff para {nombre_mes} todavía.")
+            st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
+            st.stop()
         if 'dias_pedido' not in df_raw.columns:
             df_raw['f_ini'] = pd.to_datetime(df_raw['fecha_inicio'], errors='coerce')
             df_raw['f_fin'] = pd.to_datetime(df_raw['fecha_fin_real'], errors='coerce')
@@ -460,7 +466,11 @@ with tab_reportes:
 
             try: wr = float(row.wr) if row.wr else 0.0
             except: wr = 0.0
+            
             valor_bote = 2.0 if wr >= 60 else 1.0
+            if str(row.booster_nombre).upper() == "PEREZ":
+                valor_bote = 0.0
+                
             mi_neto_real = p_cli - p_boo - valor_bote
             
             t_staff += p_boo
@@ -547,7 +557,7 @@ with tab_analytics:
         df_bi['wr'] = pd.to_numeric(df_bi['wr'], errors='coerce').fillna(0)
         df_bi['pago_cliente'] = pd.to_numeric(df_bi['pago_cliente'], errors='coerce').fillna(0)
         df_bi['pago_booster'] = pd.to_numeric(df_bi['pago_booster'], errors='coerce').fillna(0)
-        df_bi['valor_bote'] = df_bi['wr'].apply(lambda x: 2.0 if x >= 60 else 1.0)
+        df_bi['valor_bote'] = df_bi.apply(lambda x: 0.0 if str(x['booster_nombre']).upper() == 'PEREZ' else (2.0 if x['wr'] >= 60 else 1.0), axis=1)
         df_bi['ganancia_empresa'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['valor_bote']
         df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['fecha_fin_dt'] = pd.to_datetime(df_bi['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
@@ -1087,7 +1097,7 @@ def modal_eliminar_transaccion(id_real, detalle):
 with tab_binance:
     st.subheader("🏦 Binance Wallet")
 
-    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
+    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr, booster_nombre FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
     neto_historico = 0.0
     bote_historico = 0.0
     
@@ -1096,7 +1106,10 @@ with tab_binance:
             p_cli = clean_num(row['pago_cliente'])
             p_boo = clean_num(row['pago_booster'])
             wr = clean_num(row['wr'])
+            
             valor_bote = 2.0 if wr >= 60 else 1.0
+            if str(row['booster_nombre']).upper() == 'PEREZ':
+                valor_bote = 0.0
             
             neto_historico += (p_cli - p_boo - valor_bote)
             bote_historico += valor_bote
