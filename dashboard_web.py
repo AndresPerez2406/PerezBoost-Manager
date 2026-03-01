@@ -13,6 +13,16 @@ import warnings
 import extra_streamlit_components as stx
 import time
 
+# ==============================================================================
+# 🕒 ZONA HORARIA PARA STREAMLIT CLOUD
+# ==============================================================================
+os.environ['TZ'] = 'America/Bogota'
+try:
+    time.tzset()
+except AttributeError:
+    pass 
+
+
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 
 st.markdown("""
