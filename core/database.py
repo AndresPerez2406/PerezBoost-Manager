@@ -42,25 +42,21 @@ def inicializar_db():
     cursor.execute('CREATE TABLE IF NOT EXISTS inventario (id INTEGER PRIMARY KEY AUTOINCREMENT, user_pass TEXT NOT NULL UNIQUE, elo_tipo TEXT, descripcion TEXT DEFAULT "FRESH")')
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS pedidos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, booster_id INTEGER, booster_nombre TEXT, 
-            user_pass TEXT, elo_inicial TEXT, fecha_inicio TEXT, fecha_limite TEXT, 
+            id INTEGER PRIMARY KEY AUTOINCREMENT, booster_id INTEGER, booster_nombre TEXT,
+            user_pass TEXT, elo_inicial TEXT, fecha_inicio TEXT, fecha_limite TEXT,
             estado TEXT DEFAULT 'En progreso', elo_final TEXT, wr REAL, fecha_fin_real TEXT,
-            pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL, 
+            pago_cliente REAL, pago_booster REAL, ganancia_empresa REAL,
             ajuste_valor REAL DEFAULT 0, ajuste_motivo TEXT,
             pago_realizado INTEGER DEFAULT 0,
             FOREIGN KEY (booster_id) REFERENCES boosters (id))''')
 
-    try:
-        cursor.execute('ALTER TABLE pedidos ADD COLUMN pago_realizado INTEGER DEFAULT 0')
+    try: cursor.execute('ALTER TABLE pedidos ADD COLUMN pago_realizado INTEGER DEFAULT 0')
     except: pass
-    try:
-        cursor.execute('ALTER TABLE pedidos ADD COLUMN notas TEXT DEFAULT "FRESH"')
+    try: cursor.execute('ALTER TABLE pedidos ADD COLUMN notas TEXT DEFAULT "FRESH"')
     except: pass
-    try:
-        cursor.execute('ALTER TABLE pedidos ADD COLUMN opgg TEXT DEFAULT ""')
+    try: cursor.execute('ALTER TABLE pedidos ADD COLUMN opgg TEXT DEFAULT ""')
     except: pass
-    try:
-        cursor.execute('ALTER TABLE boosters ADD COLUMN binance TEXT DEFAULT ""')
+    try: cursor.execute('ALTER TABLE boosters ADD COLUMN binance TEXT DEFAULT ""')
     except: pass
 
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
@@ -77,7 +73,38 @@ def inicializar_db():
         cursor.executemany("INSERT INTO config_precios VALUES (?, ?, ?, ?)", precios)
     
     conn.commit()
+    reparar_base_datos_antigua(cursor)
+    
+    conn.commit()
     conn.close()
+
+def reparar_base_datos_antigua(cursor):
+    """
+    Escanea la DB importada. Si encuentra pedidos antiguos donde el bote se calculó 
+    como $0.0 por errores de versiones pasadas, recalcula 'ganancia_empresa' correctamente.
+    """
+    try:
+        cursor.execute("""
+            SELECT id, pago_cliente, pago_booster, wr, ganancia_empresa 
+            FROM pedidos 
+            WHERE estado = 'Terminado' 
+            AND UPPER(booster_nombre) != 'PEREZ'
+            AND (pago_cliente - pago_booster - ganancia_empresa) <= 0
+        """)
+        filas_corruptas = cursor.fetchall()
+
+        for fila in filas_corruptas:
+            id_p, p_cli, p_boo, wr, g_emp = fila
+            p_cli = float(p_cli or 0.0)
+            p_boo = float(p_boo or 0.0)
+            wr_val = float(wr or 0.0)
+            bote_asumido = 2.0 if wr_val >= 60 else 1.0
+            g_empresa_corregida = p_cli - p_boo - bote_asumido
+            
+            cursor.execute("UPDATE pedidos SET ganancia_empresa = ? WHERE id = ?", (g_empresa_corregida, id_p))
+            
+    except Exception as e:
+        print(f"⚠️ Nota: El auto-reparador omitió el proceso: {e}")
 
 # ==========================================
 # SECCIÓN 1: GESTIÓN DE BOOSTERS
@@ -561,7 +588,7 @@ def obtener_total_bote_ranking():
     mes_actual = datetime.now().strftime("%Y-%m")
 
     sql = """
-        SELECT COUNT(*) + COALESCE(SUM(CASE WHEN wr >= 60 THEN 1 ELSE 0 END), 0) 
+        SELECT SUM(pago_cliente - pago_booster - ganancia_empresa) 
         FROM pedidos
         WHERE estado = 'Terminado'
         AND UPPER(booster_nombre) != 'PEREZ'
@@ -570,7 +597,7 @@ def obtener_total_bote_ranking():
     cursor.execute(sql, (f"{mes_actual}%",))
     resultado = cursor.fetchone()
     conn.close()
-    return resultado[0] if resultado and resultado[0] else 0
+    return resultado[0] if resultado and resultado[0] else 0.0
 
 def obtener_pedidos_mes_actual_db():
     conn = conectar(); cursor = conn.cursor()

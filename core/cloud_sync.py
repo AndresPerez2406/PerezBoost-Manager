@@ -149,7 +149,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         migrar_tabla("logs_auditoria", "logs")
         migrar_tabla("pedidos", "pedidos")
         migrar_tabla("sistema_config", "sistema_config")
-
+        migrar_tabla("wallet_perez", "wallet_perez")
+        
         for t in ["pedidos", "boosters", "inventario", "logs"]:
             try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
             except: pass

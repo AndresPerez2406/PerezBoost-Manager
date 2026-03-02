@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
 from pathlib import Path
 import warnings
 import extra_streamlit_components as stx
@@ -21,7 +20,6 @@ try:
     time.tzset()
 except AttributeError:
     pass 
-
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 
@@ -189,20 +187,25 @@ def render_public_ranking():
         total_high = len(df_term[df_term['wr_val'] >= 60])
         wr_global = df_term['wr_val'].mean() if total_pedidos > 0 else 0.0
 
-        bote_pedidos = total_pedidos * 1.0
-        bote_wr = total_high * 1.0
-        bote_acum_ant = 11.0
-        bote_total = bote_pedidos + bote_wr + bote_acum_ant
+        # 🛑 Historical Freeze: Calculamos bote restando
+        df_term['pago_cliente'] = pd.to_numeric(df_term['pago_cliente'], errors='coerce').fillna(0)
+        df_term['pago_booster'] = pd.to_numeric(df_term['pago_booster'], errors='coerce').fillna(0)
+        df_term['ganancia_empresa'] = pd.to_numeric(df_term['ganancia_empresa'], errors='coerce').fillna(0)
+        df_term['bote_calc'] = df_term['pago_cliente'] - df_term['pago_booster'] - df_term['ganancia_empresa']
+        
+        bote_total = df_term['bote_calc'].sum()
+
+        if nombre_mes == "FEBRERO" and datetime.now().year == 2026:
+            bote_total += 11.0
+        elif nombre_mes == "ENERO" and datetime.now().year == 2026:
+            bote_total -= 5.0
+            
+        if bote_total < 0: bote_total = 0.0
 
         st.markdown(f"""
             <div class="prize-banner">
                 <div class="prize-title">💰 GRAN PREMIO {nombre_mes} 💰</div>
                 <div class="prize-amount">${bote_total:.2f} USD</div>
-                <div class="prize-breakdown">
-                    <span>📈 Enero:</span> +${bote_acum_ant:.2f} &nbsp;&nbsp;|&nbsp;&nbsp; 
-                    <span>📦 Pedidos:</span> +${bote_pedidos:.2f} &nbsp;&nbsp;|&nbsp;&nbsp; 
-                    <span>🔥 Calidad WR:</span> +${bote_wr:.2f}
-                </div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -433,7 +436,7 @@ with tab_reportes:
         st.write("")
         if st.button("🔄 Refrescar"):  st.cache_data.clear(); st.rerun()
 
-    query_base = "SELECT * FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
+    query_base = "SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
     if mes_sel != "Todos":
         n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
         query_base += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
@@ -453,6 +456,7 @@ with tab_reportes:
             conteo += 1
             p_cli = clean_num(row.pago_cliente)
             p_boo = clean_num(row.pago_booster)
+            g_empresa = clean_num(row.ganancia_empresa)
 
             txt_dias = "⚡ <24h"
             try:
@@ -476,13 +480,13 @@ with tab_reportes:
 
             try: wr = float(row.wr) if row.wr else 0.0
             except: wr = 0.0
-            
-            valor_bote = 2.0 if wr >= 60 else 1.0
+
+            mi_neto_real = g_empresa
             if str(row.booster_nombre).upper() == "PEREZ":
                 valor_bote = 0.0
-                
-            mi_neto_real = p_cli - p_boo - valor_bote
-            
+            else:
+                valor_bote = p_cli - p_boo - mi_neto_real
+
             t_staff += p_boo
             t_neto += mi_neto_real
             t_bote += valor_bote
@@ -549,7 +553,7 @@ with tab_analytics:
     st.divider()
 
     query_bi = """
-        SELECT booster_nombre, wr, pago_cliente, pago_booster, fecha_inicio, fecha_fin_real 
+        SELECT booster_nombre, wr, pago_cliente, pago_booster, ganancia_empresa, fecha_inicio, fecha_fin_real 
         FROM pedidos 
         WHERE estado = 'Terminado' 
         AND pago_realizado = 1 
@@ -567,8 +571,11 @@ with tab_analytics:
         df_bi['wr'] = pd.to_numeric(df_bi['wr'], errors='coerce').fillna(0)
         df_bi['pago_cliente'] = pd.to_numeric(df_bi['pago_cliente'], errors='coerce').fillna(0)
         df_bi['pago_booster'] = pd.to_numeric(df_bi['pago_booster'], errors='coerce').fillna(0)
-        df_bi['valor_bote'] = df_bi.apply(lambda x: 0.0 if str(x['booster_nombre']).upper() == 'PEREZ' else (2.0 if x['wr'] >= 60 else 1.0), axis=1)
-        df_bi['ganancia_empresa'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['valor_bote']
+        df_bi['ganancia_empresa'] = pd.to_numeric(df_bi['ganancia_empresa'], errors='coerce').fillna(0)
+        
+        # 🛑 Historical Freeze
+        df_bi['valor_bote'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['ganancia_empresa']
+        
         df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['fecha_fin_dt'] = pd.to_datetime(df_bi['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['dias_entrega'] = (df_bi['fecha_fin_dt'] - df_bi['fecha_inicio_dt']).dt.total_seconds() / (24 * 3600)
@@ -733,7 +740,7 @@ with tab_ranking:
     mes_actual = datetime.now().strftime("%Y-%m")
 
     query_rank = f"""
-        SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster 
+        SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa 
         FROM pedidos 
         WHERE estado = 'Terminado' AND pago_realizado = 1 
         AND CAST(fecha_fin_real AS TEXT) LIKE '{mes_actual}%'
@@ -744,8 +751,12 @@ with tab_ranking:
         df_month['wr'] = pd.to_numeric(df_month['wr'], errors='coerce').fillna(0)
         df_month['pago_cliente'] = pd.to_numeric(df_month['pago_cliente'], errors='coerce').fillna(0)
         df_month['pago_booster'] = pd.to_numeric(df_month['pago_booster'], errors='coerce').fillna(0)
-        df_month['bote'] = df_month['wr'].apply(lambda x: 2.0 if x >= 60 else 1.0)
-        df_month['neto'] = df_month['pago_cliente'] - df_month['pago_booster'] - df_month['bote']
+        df_month['ganancia_empresa'] = pd.to_numeric(df_month['ganancia_empresa'], errors='coerce').fillna(0)
+        
+        # 🛑 Historical Freeze
+        df_month['bote'] = df_month['pago_cliente'] - df_month['pago_booster'] - df_month['ganancia_empresa']
+        df_month['neto'] = df_month['ganancia_empresa']
+        
         df_month['f_ini'] = pd.to_datetime(df_month['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
         df_month['f_fin'] = pd.to_datetime(df_month['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
         df_month['dias'] = (df_month['f_fin'] - df_month['f_ini']).dt.days.apply(lambda x: max(x, 1) if pd.notnull(x) else 1)
@@ -997,7 +1008,7 @@ with tab_tracking:
             st.success("✨ Excelente. Sin anomalías operativas en curso.")
         
 # ==============================================================================
-# TAB 7: Gestion Financiera
+# TAB 6: Gestion Financiera
 # ==============================================================================
 
 with tab_gestion:
@@ -1107,7 +1118,7 @@ def modal_eliminar_transaccion(id_real, detalle):
 with tab_binance:
     st.subheader("🏦 Binance Wallet")
 
-    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, wr, booster_nombre FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
+    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, ganancia_empresa, booster_nombre FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
     neto_historico = 0.0
     bote_historico = 0.0
     
@@ -1115,13 +1126,12 @@ with tab_binance:
         for _, row in df_pedidos_all.iterrows():
             p_cli = clean_num(row['pago_cliente'])
             p_boo = clean_num(row['pago_booster'])
-            wr = clean_num(row['wr'])
+            g_emp = clean_num(row['ganancia_empresa'])
             
-            valor_bote = 2.0 if wr >= 60 else 1.0
-            if str(row['booster_nombre']).upper() == 'PEREZ':
-                valor_bote = 0.0
+            # 🛑 Historical Freeze
+            valor_bote = p_cli - p_boo - g_emp
             
-            neto_historico += (p_cli - p_boo - valor_bote)
+            neto_historico += g_emp
             bote_historico += valor_bote
 
         neto_historico += 5.0
@@ -1250,4 +1260,5 @@ with tab_binance:
                         
                 with c_btn3:
                     if st.button("🔄 Refresh", width='stretch'):
-                        st.cache_data.clear(), st.rerun()
+                        st.cache_data.clear()
+                        st.rerun()

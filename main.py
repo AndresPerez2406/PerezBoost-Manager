@@ -124,6 +124,13 @@ class PerezBoostApp(ctk.CTk):
         self.tabla_precios = None
         self.tabla_rep = None
 
+    def obtener_bonos_actuales(self):
+        try: bp = float(obtener_config_sistema("bono_pedido") or 1.0)
+        except: bp = 1.0
+        try: bw = float(obtener_config_sistema("bono_wr") or 1.0)
+        except: bw = 1.0
+        return bp, bw
+
     def centrar_ventana(self, ventana, ancho, alto):
         ventana.update_idletasks()
         x = (ventana.winfo_screenwidth() // 2) - (ancho // 2)
@@ -293,9 +300,7 @@ class PerezBoostApp(ctk.CTk):
                 try: wr_val = float(wr) 
                 except: wr_val = 0.0
 
-                bote_visual = 2.0 if wr_val >= 60 else 1.0
-                if str(staff).upper() == "PEREZ":
-                    bote_visual = 0.0
+                bote_visual = v_cobro - v_pago - v_ganancia
                 
                 sum_ventas += v_cobro
                 sum_staff += v_pago
@@ -514,9 +519,9 @@ class PerezBoostApp(ctk.CTk):
                 try: wr_val = float(wr) 
                 except: wr_val = 0.0
 
-                bote_visual = 2.0 if wr_val >= 60 else 1.0
-                if str(staff).upper() == "PEREZ":
-                    bote_visual = 0.0
+                b_ped, b_wr = self.obtener_bonos_actuales()
+                bote_visual = (b_ped + b_wr) if wr_val >= 60 else b_ped
+                if str(staff).upper() == "PEREZ": bote_visual = 0.0
                 
                 sum_ventas += v_cobro
                 sum_staff += v_pago
@@ -589,12 +594,16 @@ class PerezBoostApp(ctk.CTk):
         self.limpiar_pantalla()
         self.configurar_estilo_tabla()
 
-        header = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        # 🌟 LA SOLUCIÓN: Un contenedor con barra de desplazamiento
+        scroll_container = ctk.CTkScrollableFrame(self.content_frame, fg_color="transparent")
+        scroll_container.pack(fill="both", expand=True)
+
+        header = ctk.CTkFrame(scroll_container, fg_color="transparent")
         header.pack(pady=15, padx=30, fill="x")
         ctk.CTkLabel(header, text="⚙️ CONFIGURACIÓN DE SISTEMA", font=("Arial", 20, "bold")).pack(side="left")
 
         cols = ("div", "p_cli", "m_per", "p_boo", "pts")
-        self.tabla_precios = ttk.Treeview(self.content_frame, columns=cols, show="headings", height=6)
+        self.tabla_precios = ttk.Treeview(scroll_container, columns=cols, show="headings", height=6)
 
         headers = ["DIVISIÓN", "PRECIO CLIENTE", "MARGEN PEREZ", "PAGO BOOSTER", "PUNTOS RANK"]
         for col, h in zip(cols, headers):
@@ -605,7 +614,7 @@ class PerezBoostApp(ctk.CTk):
         self.tabla_precios.pack(padx=30, pady=10, fill="x") 
         self.actualizar_tabla_precios()
 
-        footer = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        footer = ctk.CTkFrame(scroll_container, fg_color="transparent")
         footer.pack(pady=(5, 10), padx=30, fill="x")
         
         ctk.CTkButton(footer, text="+ Nueva Tarifa", fg_color="#2ecc71", width=110,
@@ -622,9 +631,40 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkButton(footer, text="🗑️ Eliminar", fg_color="#e74c3c", width=100,
                       command=self.eliminar_precio_seleccionado).pack(side="right")
 
-        ctk.CTkFrame(self.content_frame, height=2, fg_color="#333333").pack(fill="x", padx=30, pady=10)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#333333").pack(fill="x", padx=30, pady=10)
 
-        frame_discord = ctk.CTkFrame(self.content_frame, fg_color="#1a1a1a", corner_radius=10)
+        # ==========================================
+        # 💰 NUEVO FRAME: CONFIGURACIÓN DEL BOTÍN
+        # ==========================================
+        frame_botin = ctk.CTkFrame(scroll_container, fg_color="#1a1a1a", corner_radius=10)
+        frame_botin.pack(fill="x", padx=30, pady=5)
+        
+        ctk.CTkLabel(frame_botin, text="💰 CONFIGURACIÓN DE BOTÍN (RANKING)", font=("Arial", 14, "bold"), text_color="#f1c40f").pack(anchor="w", padx=15, pady=(10,5))
+        
+        row_b1 = ctk.CTkFrame(frame_botin, fg_color="transparent")
+        row_b1.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(row_b1, text="Bono por Pedido ($):", width=180, anchor="w").pack(side="left")
+        self.entry_bono_pedido = ctk.CTkEntry(row_b1, width=100)
+        self.entry_bono_pedido.pack(side="left", padx=5)
+        
+        row_b2 = ctk.CTkFrame(frame_botin, fg_color="transparent")
+        row_b2.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(row_b2, text="Bono Extra por Alto WR ($):", width=180, anchor="w").pack(side="left")
+        self.entry_bono_wr = ctk.CTkEntry(row_b2, width=100)
+        self.entry_bono_wr.pack(side="left", padx=5)
+
+        val_ped = obtener_config_sistema("bono_pedido")
+        val_wr = obtener_config_sistema("bono_wr")
+        self.entry_bono_pedido.insert(0, val_ped if val_ped else "1.0")
+        self.entry_bono_wr.insert(0, val_wr if val_wr else "1.0")
+
+        ctk.CTkButton(frame_botin, text="💾 Guardar Botín", width=150, height=30, fg_color="#d35400", hover_color="#e67e22", 
+                      command=self.guardar_config_botin).pack(pady=10)
+
+        # ==========================================
+        # 🤖 FRAME DISCORD
+        # ==========================================
+        frame_discord = ctk.CTkFrame(scroll_container, fg_color="#1a1a1a", corner_radius=10)
         frame_discord.pack(fill="x", padx=30, pady=5)
         
         ctk.CTkLabel(frame_discord, text="🤖 CONECTIVIDAD DISCORD", font=("Arial", 14, "bold"), text_color="#5865F2").pack(anchor="w", padx=15, pady=(10,5))
@@ -657,7 +697,10 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkButton(frame_discord, text="Guardar Webhooks", width=150, height=30, fg_color="#404eed", 
                       command=self.guardar_webhooks_discord).pack(pady=10)
 
-        frame_cloud = ctk.CTkFrame(self.content_frame, fg_color="#2d2042", corner_radius=10) 
+        # ==========================================
+        # ☁️ FRAME CLOUD
+        # ==========================================
+        frame_cloud = ctk.CTkFrame(scroll_container, fg_color="#2d2042", corner_radius=10) 
         frame_cloud.pack(fill="x", padx=30, pady=10)
 
         ctk.CTkLabel(frame_cloud, text="☁️ SINCRONIZACIÓN NUBE", font=("Arial", 14, "bold"), text_color="#a29bfe").pack(anchor="w", padx=15, pady=(10,5))
@@ -686,6 +729,19 @@ class PerezBoostApp(ctk.CTk):
         btn_bajar.pack(side="left", padx=20)
 
         ctk.CTkLabel(frame_cloud, text="Nota: 'Subir' guarda tu PC en la nube. 'Bajar' trae la nube a tu PC (sobrescribe local).", font=("Arial", 10, "italic"), text_color="gray").pack(pady=(0,10))
+
+    def guardar_config_botin(self):
+        try:
+            val_p = float(self.entry_bono_pedido.get().strip())
+            val_w = float(self.entry_bono_wr.get().strip())
+            
+            guardar_config_sistema("bono_pedido", str(val_p))
+            guardar_config_sistema("bono_wr", str(val_w))
+            
+            messagebox.showinfo("Éxito", "Configuración del botín actualizada correctamente.")
+        except ValueError:
+            messagebox.showerror("Error", "Debes ingresar valores numéricos válidos (Ej: 1.0, 0.5, 0.0)")
+
     def guardar_webhooks_discord(self):
         url_pedidos = self.entry_webhook.get().strip()
         url_ranking = self.entry_webhook_rank.get().strip()
@@ -718,22 +774,82 @@ class PerezBoostApp(ctk.CTk):
             ))
             
     def accion_subir_nube(self):
-        self.win = ctk.CTkToplevel(self); self.centrar_ventana(self.win, 300, 150); self.win.attributes("-topmost", True)
-        ctk.CTkLabel(self.win, text="🚀 Subiendo a la Nube...", font=("Arial", 14)).pack(pady=20)
-        bar = ctk.CTkProgressBar(self.win, mode="indeterminate"); bar.pack(pady=10); bar.start()
+        self.win = ctk.CTkToplevel(self)
+        self.centrar_ventana(self.win, 300, 150)
+        self.win.attributes("-topmost", True)
+        ctk.CTkLabel(self.win, text="🚀 Subiendo...", font=("Arial", 14)).pack(pady=20)
+        bar = ctk.CTkProgressBar(self.win, mode="indeterminate")
+        bar.pack(pady=10)
+        bar.start()
         
-        def fin(): self.win.destroy(); messagebox.showinfo("Nube", "✅ Datos subidos correctamente.")
-        def err(e): self.win.destroy(); messagebox.showerror("Error", f"Fallo: {e}")
-        threading.Thread(target=logica_subir_a_nube, args=(fin, err)).start()
+        def proceso_subida():
+            try:
+                import psycopg2
+                from dotenv import load_dotenv
+                import os
+                load_dotenv(".env")
+                
+                url_db = os.getenv("DATABASE_URL")
+                if url_db:
 
+                    conn_pg = psycopg2.connect(url_db)
+                    cur_pg = conn_pg.cursor()
+                    cur_pg.execute("SELECT id, opgg FROM pedidos WHERE opgg IS NOT NULL AND opgg != ''")
+                    links_nube = cur_pg.fetchall()
+                    conn_pg.close()
+
+                    if links_nube:
+                        conn_local = conectar()
+                        cur_local = conn_local.cursor()
+                        for pid, link in links_nube:
+                            cur_local.execute("UPDATE pedidos SET opgg = ? WHERE id = ?", (link, pid))
+                        conn_local.commit()
+                        conn_local.close()
+                        print(f"🛡️ {len(links_nube)} enlaces OP.GG rescatados con éxito.")
+            except Exception as e:
+                print(f"⚠️ Aviso: No se pudieron rescatar los OPGG de la nube: {e}")
+            def fin(): 
+                self.win.destroy()
+                messagebox.showinfo("Nube", "✅ Datos subidos correctamente.")
+                self.mostrar_tracking() if hasattr(self, 'mostrar_tracking') else None
+                
+            def err(e): 
+                self.win.destroy()
+                messagebox.showerror("Error", f"Fallo al subir: {e}")
+                
+            logica_subir_a_nube(fin, err)
+            
+        threading.Thread(target=proceso_subida).start()
+        
     def accion_bajar_nube(self):
         if not messagebox.askyesno("Confirmar", "⚠️ ¿Borrar datos locales y traer los de la Nube?"): return
-        self.win = ctk.CTkToplevel(self); self.centrar_ventana(self.win, 300, 150); self.win.attributes("-topmost", True)
+        wb_pedidos = obtener_config_sistema("discord_webhook")
+        wb_ranking = obtener_config_sistema("discord_webhook_ranking")
+        wb_alertas = obtener_config_sistema("discord_webhook_alertas")
+        b_ped = obtener_config_sistema("bono_pedido")
+        b_wr = obtener_config_sistema("bono_wr")
+
+        self.win = ctk.CTkToplevel(self)
+        self.centrar_ventana(self.win, 300, 150)
+        self.win.attributes("-topmost", True)
         ctk.CTkLabel(self.win, text="⬇️ Sincronizando con la Nube...", font=("Arial", 14)).pack(pady=20)
         bar = ctk.CTkProgressBar(self.win, mode="indeterminate"); bar.pack(pady=10); bar.start()
 
-        def fin(): self.win.destroy(); messagebox.showinfo("Nube", "✅ Datos descargados."); self.mostrar_dashboard()
-        def err(e): self.win.destroy(); messagebox.showerror("Error", f"Fallo: {e}")
+        def fin(): 
+            if wb_pedidos: guardar_config_sistema("discord_webhook", wb_pedidos)
+            if wb_ranking: guardar_config_sistema("discord_webhook_ranking", wb_ranking)
+            if wb_alertas: guardar_config_sistema("discord_webhook_alertas", wb_alertas)
+            if b_ped: guardar_config_sistema("bono_pedido", b_ped)
+            if b_wr: guardar_config_sistema("bono_wr", b_wr)
+
+            self.win.destroy()
+            messagebox.showinfo("Nube", "✅ Datos sincronizados correctamente.\n(Tus Webhooks y Botines locales fueron protegidos).")
+            self.mostrar_dashboard()
+            
+        def err(e): 
+            self.win.destroy()
+            messagebox.showerror("Error", f"Fallo: {e}")
+            
         threading.Thread(target=logica_bajar_de_nube, args=(fin, err)).start()
         
     # =========================================================================
@@ -1291,6 +1407,7 @@ class PerezBoostApp(ctk.CTk):
             
             v_total_cli = limpiar(r[11])
             v_pago_staff = limpiar(r[12])
+            mi_neto_real = limpiar(r[13])
 
             txt_dias = "⚡ <24h"
             d_num = 0
@@ -1311,11 +1428,11 @@ class PerezBoostApp(ctk.CTk):
             try: wr = float(r[9]) if r[9] else 0.0
             except: wr = 0.0
             
-            valor_bote = 2.0 if wr >= 60 else 1.0
-            if str(r[2]).upper() == "PEREZ":
-                valor_bote = 0.0
+            b_ped, b_wr = self.obtener_bonos_actuales()
+            valor_bote = (b_ped + b_wr) if wr >= 60 else b_ped
+            if str(r[2]).upper() == "PEREZ": valor_bote = 0.0
                 
-            mi_neto_real = v_total_cli - v_pago_staff - valor_bote
+            valor_bote = v_total_cli - v_pago_staff - mi_neto_real
 
             if esta_pagado == 1:
                 t_staff += v_pago_staff
@@ -1432,9 +1549,9 @@ class PerezBoostApp(ctk.CTk):
                 wr = float(r[9] if r[9] else 0)
                 val_cliente = float(r[11] if r[11] else 0)
                 val_staff = float(r[12] if r[12] else 0)
-                val_bote = 2.0 if wr >= 60 else 1.0
-                val_perez_neto = val_cliente - val_staff - val_bote
-
+                val_perez_neto = float(r[13] if r[13] else 0)
+                val_bote = val_cliente - val_staff - val_perez_neto
+                
                 lista_procesada.append({
                     "BOOSTER": r[2],
                     "CUENTA (User)": str(r[3]).split(':')[0] if r[3] else "N/A",
@@ -1608,8 +1725,16 @@ class PerezBoostApp(ctk.CTk):
                     nota_ajuste = "($1 Pedido + $1 Bono WR)"
 
                 total_pedidos = cant_term
-                bote_total = (float(cant_term) * 1.0) + (float(cant_high_wr) * 1.0) + ajuste_manual
+                b_ped, b_wr = self.obtener_bonos_actuales()
+                bote_total = (float(cant_term) * b_ped) + (float(cant_high_wr) * b_wr) + ajuste_manual
                 if bote_total < 0: bote_total = 0.0
+                
+                if nombre_mes == "Febrero" and anio_actual == 2026:
+                    nota_ajuste = f"($11 Enero + ${b_ped:g} Pedidos + ${b_wr:g} WR)"
+                elif nombre_mes == "Enero" and anio_actual == 2026:
+                    nota_ajuste = f"(${b_ped:g} Pedido + ${b_wr:g} WR - $5 Pagados)"
+                else:
+                    nota_ajuste = f"(${b_ped:g} Pedido + ${b_wr:g} Bono WR)"
 
                 if 0 < avg_dias < 1:
                     texto_eficiencia = "⚡ < 1 Día"
@@ -1676,7 +1801,8 @@ class PerezBoostApp(ctk.CTk):
                 ajuste = -5.0
                 msg_ajuste = f"* 💸 WR Pagado: `-$5.00 USD`\n"
 
-            total_bote = (cant_term * 1.0) + (cant_high_wr * 1.0) + ajuste
+            b_ped, b_wr = self.obtener_bonos_actuales()
+            total_bote = (cant_term * b_ped) + (cant_high_wr * b_wr) + ajuste
         except:
             cant_term, cant_high_wr, total_bote, msg_ajuste = 0, 0, 0.0, ""
 
@@ -1688,8 +1814,8 @@ class PerezBoostApp(ctk.CTk):
         descripcion = f"# 🏆 HALL OF FAME - {mes_nombre.upper()} {anio}\n"
         descripcion += f"## 💰 BOTE ACUMULADO: `${total_bote:.2f} USD` 💰\n\n"
         descripcion += msg_ajuste
-        descripcion += f"* ✅ Pedidos Terminados: `{cant_term}` ($1.00 c/u)\n"
-        descripcion += f"* 🔥 Bonos High WR (>60%): `{cant_high_wr}` ($1.00 c/u)\n"
+        descripcion += f"* ✅ Pedidos Terminados: `{cant_term}` (${b_ped:g} c/u)\n"
+        descripcion += f"* 🔥 Bonos High WR (>60%): `{cant_high_wr}` (${b_wr:g} c/u)\n"
         descripcion += "\n**DETALLE POR STAFF:**\n\n"
         
         for i, b in enumerate(ranking[:10], start=1):
@@ -1707,87 +1833,167 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Error", f"Fallo al enviar: {e}")
             
-    # ==========================================
-    # SECCIÓN: GESTIÓN FINANCIERA
-    # ==========================================
+    # =========================================================================
+    # SECCIÓN: GESTIÓN FINANCIERA Y WALLET BINANCE
+    # =========================================================================
+
+    def asegurar_tabla_wallet(self):
+        """Crea la tabla en la base de datos local si es la primera vez que se abre."""
+        conn = conectar(); c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS wallet_perez (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                        fecha DATETIME DEFAULT CURRENT_TIMESTAMP, 
+                        tipo TEXT, 
+                        categoria TEXT, 
+                        monto REAL, 
+                        descripcion TEXT)''')
+        conn.commit(); conn.close()
 
     def mostrar_finanzas(self):
         self.limpiar_pantalla()
-
+        self.asegurar_tabla_wallet()
+        self.configurar_estilo_tabla()
+        
         self.main_scroll = ctk.CTkScrollableFrame(self.content_frame, fg_color="transparent")
         self.main_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         header = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
-        header.pack(pady=20, padx=30, fill="x")
+        header.pack(pady=(10, 15), padx=30, fill="x")
+        ctk.CTkLabel(header, text="🏦 CAJA FUERTE Y BINANCE", font=("Arial", 24, "bold")).pack(side="left")
+
+        # ---------------------------------------------------------
+        # 1. CÁLCULO EN VIVO DE FONDOS (Historical Freeze)
+        # ---------------------------------------------------------
+        conn = conectar(); c = conn.cursor()
+        c.execute("SELECT pago_cliente, pago_booster, ganancia_empresa FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
+        pedidos_pagados = c.fetchall()
         
-        ctk.CTkLabel(header, text="📊 DASHBOARD FINANCIERO", font=("Arial", 24, "bold")).pack(side="left")
+        neto_hist = 0.0
+        bote_hist = 0.0
+        for p in pedidos_pagados:
+            p_cli = float(p[0] or 0)
+            p_boo = float(p[1] or 0)
+            g_emp = float(p[2] or 0)
+            
+            bote_hist += (p_cli - p_boo - g_emp)
+            neto_hist += g_emp
 
-        meses = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        neto_hist += 5.0
+        bote_hist -= 5.0
+
+        c.execute("SELECT tipo, categoria, monto FROM wallet_perez")
+        movimientos = c.fetchall()
+        for tipo, cat, monto in movimientos:
+            m = float(monto or 0)
+            if tipo == 'RETIRO':
+                if cat == 'NETO': neto_hist -= m
+                elif cat == 'BOTE': bote_hist -= m
+            elif tipo == 'INGRESO':
+                if cat == 'NETO': neto_hist += m
+                elif cat == 'BOTE': bote_hist += m
+        conn.close()
+
+        total_binance = neto_hist + bote_hist
+
+        # ---------------------------------------------------------
+        # 2. TARJETAS DE SALDO
+        # ---------------------------------------------------------
+        wallet_frame = ctk.CTkFrame(self.main_scroll, fg_color="#111111", corner_radius=15, border_width=1, border_color="#333333")
+        wallet_frame.pack(fill="x", padx=30, pady=5)
         
-        self.combo_filtro_finanzas = ctk.CTkOptionMenu(
-            header, 
-            values=meses, 
-            width=150,
-            command=self.actualizar_tarjetas_finanzas 
-        )
-        self.combo_filtro_finanzas.set("Todos")
-        self.combo_filtro_finanzas.pack(side="right")
-        ctk.CTkLabel(header, text="📅 Periodo:", font=("Arial", 12, "bold")).pack(side="right", padx=10)
+        cards_w = ctk.CTkFrame(wallet_frame, fg_color="transparent")
+        cards_w.pack(fill="x", pady=20)
+        cards_w.grid_columnconfigure((0,1,2), weight=1)
 
-        self.stats_container = ctk.CTkFrame(self.main_scroll, fg_color="#161616", corner_radius=15)
-        self.stats_container.pack(fill="x", padx=30, pady=10)
+        def crear_card_binance(parent, titulo, valor, color, col):
+            f = ctk.CTkFrame(parent, fg_color="#1a1a1a", border_width=1, border_color=color, corner_radius=10)
+            f.grid(row=0, column=col, padx=15, sticky="nsew")
+            ctk.CTkLabel(f, text=titulo, font=("Arial", 12, "bold"), text_color=color).pack(pady=(15,5))
+            ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 30, "bold"), text_color="white").pack(pady=(0,15))
 
-        self.actualizar_tarjetas_finanzas("Todos")
+        crear_card_binance(cards_w, "MI NETO DISPONIBLE", neto_hist, "#2ecc71", 0)
+        crear_card_binance(cards_w, "BOTE RANKING (STAFF)", bote_hist, "#f1c40f", 1)
+        crear_card_binance(cards_w, "TOTAL BINANCE", total_binance, "#3498db", 2)
 
-        ctk.CTkLabel(self.main_scroll, text="👤 PAGOS PENDIENTES POR STAFF (Deuda Actual)", 
-                     font=("Arial", 16, "bold")).pack(anchor="w", padx=35, pady=(30, 10))
+        # ---------------------------------------------------------
+        # 3. SECCIÓN MEDIA: NUEVO MOVIMIENTO Y LIQUIDACIONES
+        # ---------------------------------------------------------
+        mid_frame = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
+        mid_frame.pack(fill="x", padx=30, pady=20)
+        mid_frame.grid_columnconfigure(0, weight=1)
+        mid_frame.grid_columnconfigure(1, weight=1)
 
-        self.container_pagos = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
-        self.container_pagos.pack(fill="x", padx=30)
+        f_form = ctk.CTkFrame(mid_frame, fg_color="#1e1e1e", corner_radius=10)
+        f_form.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         
+        ctk.CTkLabel(f_form, text="💸 Retiros e Ingresos", font=("Arial", 16, "bold")).pack(pady=15)
+        
+        row1 = ctk.CTkFrame(f_form, fg_color="transparent"); row1.pack(fill="x", padx=20, pady=5)
+        cb_tipo = ctk.CTkOptionMenu(row1, values=["RETIRO", "INGRESO"], width=140); cb_tipo.pack(side="left", padx=5)
+        cb_cat = ctk.CTkOptionMenu(row1, values=["NETO", "BOTE"], width=140); cb_cat.pack(side="right", padx=5)
+        
+        row2 = ctk.CTkFrame(f_form, fg_color="transparent"); row2.pack(fill="x", padx=20, pady=5)
+        e_monto = ctk.CTkEntry(row2, placeholder_text="Monto $", width=140); e_monto.pack(side="left", padx=5)
+        e_desc = ctk.CTkEntry(row2, placeholder_text="Descripción (Ej: Nequi)", width=140); e_desc.pack(side="right", padx=5, expand=True, fill="x")
+
+        def registrar_mov():
+            try:
+                m = float(e_monto.get().replace('$', '').strip())
+                d = e_desc.get().strip()
+                if not d: raise ValueError("Falta descripción")
+                
+                import time
+                nuevo_id = int(time.time() * 1000) % 2147483647 
+                
+                conn = conectar(); cursor = conn.cursor()
+                cursor.execute("INSERT INTO wallet_perez (id, tipo, categoria, monto, descripcion) VALUES (?,?,?,?,?)", 
+                               (nuevo_id, cb_tipo.get(), cb_cat.get(), m, d))
+                conn.commit(); conn.close()
+                
+                self.mostrar_finanzas()
+                messagebox.showinfo("Éxito", "Transacción guardada exitosamente.")
+            except Exception as e:
+                messagebox.showerror("Error", "Monto inválido o falta descripción.")
+
+        ctk.CTkButton(f_form, text="Registrar Transacción", fg_color="#3498db", command=registrar_mov).pack(pady=20)
+
+        f_liq = ctk.CTkFrame(mid_frame, fg_color="#1e1e1e", corner_radius=10)
+        f_liq.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        
+        ctk.CTkLabel(f_liq, text="👤 Aprobar Pagos a Staff", font=("Arial", 16, "bold")).pack(pady=10)
+        self.container_pagos = ctk.CTkScrollableFrame(f_liq, fg_color="transparent", height=150)
+        self.container_pagos.pack(fill="both", expand=True, padx=10, pady=5)
         self.actualizar_lista_liquidaciones()
 
-    def actualizar_tarjetas_finanzas(self, seleccion):
-        for widget in self.stats_container.winfo_children():
-            widget.destroy()
-
-        filtro_db = None
-        if seleccion != "Todos":
-            meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            try:
-                mes_idx = meses_nombres.index(seleccion) + 1
-                anio_actual = datetime.now().year
-                filtro_db = f"{anio_actual}-{str(mes_idx).zfill(2)}"
-            except:
-                filtro_db = None
-
-        resumen = obtener_resumen_mensual_db(filtro_db)
-        cant_term = float(resumen[0] or 0)
-        cant_high_wr = float(resumen[3] or 0)
-        _, total_cli, total_staff, _ = obtener_balance_general_db(filtro_db)
-
-        bote_real = cant_term + cant_high_wr
-        utilidad_neta_real = total_cli - total_staff - bote_real
-
-        if seleccion == "Todos" or seleccion == "Enero":
-            bote_real -= 5.0
-            utilidad_neta_real += 5.0
-
-        def crear_card(parent, titulo, valor, color):
-            f = ctk.CTkFrame(parent, fg_color="transparent")
-            f.pack(side="left", expand=True, pady=25)
-            ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), text_color="gray").pack()
-            ctk.CTkLabel(f, text=f"${valor:,.2f}", font=("Arial", 24, "bold"), text_color=color).pack()
-
-        crear_card(self.stats_container, "INGRESOS TOTALES", total_cli, "#9b59b6")
-        crear_card(self.stats_container, "COSTO STAFF", total_staff, "#e74c3c")
+        # ---------------------------------------------------------
+        # 4. HISTORIAL DE WALLET
+        # ---------------------------------------------------------
+        hist_frame = ctk.CTkFrame(self.main_scroll, fg_color="#1a1a1a", corner_radius=10)
+        hist_frame.pack(fill="x", padx=30, pady=5)
         
-        lbl_bote = "BOTE ACUMULADO" if seleccion == "Todos" else f"BOTE {seleccion.upper()}"
-        crear_card(self.stats_container, lbl_bote, bote_real, "#f1c40f") 
+        header_h = ctk.CTkFrame(hist_frame, fg_color="transparent")
+        header_h.pack(fill="x", padx=15, pady=10)
+        ctk.CTkLabel(header_h, text="📜 Historial de Wallet", font=("Arial", 14, "bold")).pack(side="left")
+        ctk.CTkButton(header_h, text="🗑️ Eliminar Seleccionado", fg_color="#e74c3c", hover_color="#c0392b", width=150, height=25, command=self.eliminar_movimiento_wallet).pack(side="right")
+
+        cols_w = ("id", "fecha", "tipo", "cat", "monto", "desc")
+        self.tabla_wallet = ttk.Treeview(hist_frame, columns=cols_w, show="headings", height=8)
         
-        crear_card(self.stats_container, "MI NETO (Bolsillo)", utilidad_neta_real, "#2ecc71")
+        headers_w = ["ID", "FECHA", "TIPO", "CAJA Afectada", "MONTO", "DESCRIPCIÓN"]
+        widths_w = [40, 150, 100, 100, 100, 400]
+        for c, h, w in zip(cols_w, headers_w, widths_w):
+            self.tabla_wallet.heading(c, text=h)
+            self.tabla_wallet.column(c, width=w, anchor="center" if c != "desc" else "w")
+            
+        self.tabla_wallet.pack(fill="x", padx=15, pady=10)
+        
+        conn = conectar(); c = conn.cursor()
+        c.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez ORDER BY id DESC")
+        for row in c.fetchall():
+            signo = "-" if row[2] == "RETIRO" else "+"
+            monto_str = f"{signo}${row[4]:.2f}"
+            self.tabla_wallet.insert("", "end", values=(row[0], str(row[1])[:16], row[2], row[3], monto_str, row[5]))
+        conn.close()
 
     def actualizar_lista_liquidaciones(self):
         for widget in self.container_pagos.winfo_children():
@@ -1796,35 +2002,44 @@ class PerezBoostApp(ctk.CTk):
         saldos = obtener_saldos_pendientes_db()
         
         if not saldos:
-            ctk.CTkLabel(self.container_pagos, text="✨ No hay deudas pendientes. ¡Buen trabajo!", 
-                         font=("Arial", 14), text_color="gray").pack(pady=40)
+            ctk.CTkLabel(self.container_pagos, text="✨ No hay deudas pendientes.", font=("Arial", 13), text_color="gray").pack(pady=40)
             return
 
         for booster, total, cant, detalle in saldos:
-            card = ctk.CTkFrame(self.container_pagos, fg_color="#1e1e1e", height=85)
+            card = ctk.CTkFrame(self.container_pagos, fg_color="#2b2b2b", height=70)
             card.pack(fill="x", pady=5)
             card.pack_propagate(False) 
 
             info = ctk.CTkFrame(card, fg_color="transparent")
-            info.pack(side="left", padx=20, fill="x", expand=True)
+            info.pack(side="left", padx=15, fill="x", expand=True)
             
-            ctk.CTkLabel(info, text=f"{booster}  •  {cant} pedidos", font=("Arial", 14, "bold"), anchor="w").pack(anchor="w")
+            ctk.CTkLabel(info, text=f"{booster}  •  {cant} pedidos", font=("Arial", 13, "bold"), anchor="w").pack(anchor="w")
             
-            if detalle and len(detalle) > 60: 
-                detalle = detalle[:60] + "..." 
+            if detalle and len(detalle) > 40: 
+                detalle = detalle[:40] + "..." 
             
-            ctk.CTkLabel(info, text=f"📄 {detalle}", font=("Arial", 11), text_color="#aaaaaa", anchor="w").pack(anchor="w")
+            ctk.CTkLabel(info, text=f"📄 {detalle}", font=("Arial", 10), text_color="#aaaaaa", anchor="w").pack(anchor="w")
 
-            ctk.CTkButton(card, text=f"Pagar ${total:,.2f}", width=130, height=35,
-                          fg_color="#2ecc71", hover_color="#27ae60", font=("Arial", 12, "bold"),
-                          command=lambda b=booster, t=total: self.ejecutar_pago(b, t)).pack(side="right", padx=20)
+            ctk.CTkButton(card, text=f"Pagar ${total:,.2f}", width=100, height=30,
+                          fg_color="#2ecc71", hover_color="#27ae60", font=("Arial", 11, "bold"),
+                          command=lambda b=booster, t=total: self.ejecutar_pago(b, t)).pack(side="right", padx=15)
 
     def ejecutar_pago(self, booster, total):
-        if messagebox.askyesno("Confirmar Liquidación", f"¿Confirmas el pago de ${total:,.2f} a {booster}?\n\nEsta acción marcará {booster} como PAGADO."):
+        if messagebox.askyesno("Confirmar Liquidación", f"¿Confirmas el pago de ${total:,.2f} a {booster}?\n\nEsta acción marcará sus pedidos como PAGADOS y se reflejará en Binance."):
             cant = liquidar_pagos_booster_db(booster)
             registrar_log("PAGO_STAFF", f"Liquidación de ${total:,.2f} a {booster} ({cant} pedidos)")
             messagebox.showinfo("Pago Exitoso", f"Se han liquidado {cant} pedidos de {booster} correctamente.")
+            self.mostrar_finanzas()
 
+    def eliminar_movimiento_wallet(self):
+        sel = self.tabla_wallet.selection()
+        if not sel: return
+        id_mov = self.tabla_wallet.item(sel)['values'][0]
+        
+        if messagebox.askyesno("Confirmar", "⚠️ ¿Eliminar este movimiento?\n\nSe recalcularán los saldos de Binance."):
+            conn = conectar(); c = conn.cursor()
+            c.execute("DELETE FROM wallet_perez WHERE id = ?", (id_mov,))
+            conn.commit(); conn.close()
             self.mostrar_finanzas()
 
     # =========================================================================
@@ -2003,41 +2218,44 @@ class PerezBoostApp(ctk.CTk):
                 cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
                 tarifa = cursor.fetchone()
 
+                try: bp_val = float(obtener_config_sistema("bono_pedido") or 1.0)
+                except: bp_val = 1.0
+                try: bwr_val = float(obtener_config_sistema("bono_wr") or 1.0)
+                except: bwr_val = 1.0
+
+                conn = conectar(); cursor = conn.cursor()
+                cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
+                tarifa = cursor.fetchone()
+
                 if tarifa:
                     p_cli_base = float(tarifa[0])
                     g_per_base = float(tarifa[1])
-                    p_cliente = p_cli_base + 1.0 if wr >= 60 else p_cli_base
+                    p_cliente = p_cli_base + bwr_val if wr >= 60 else p_cli_base
 
                     if nom_booster.upper() == "PEREZ":
                         p_booster = 0.0  
                         g_perez = p_cliente + ajuste 
                     else:
                         p_booster = (p_cli_base - g_per_base) + ajuste
-                        g_perez = (g_per_base - 1.0) - ajuste
+                        g_perez = (g_per_base - bp_val) - ajuste
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
-                cursor.execute("SELECT fecha_inicio FROM pedidos WHERE id = ?", (id_r,))
-                res_fecha = cursor.fetchone()
-                fecha_inicio_str = res_fecha[0] if res_fecha else fecha_hoy_iso
-
-                try:
-                    f_obj = datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%d/%m/%Y") if "/" in str(fecha_inicio_str) else datetime.strptime(str(fecha_inicio_str).split(' ')[0], "%Y-%m-%d")
-                    nombre_mes_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}[f_obj.month]
-                    mes_inicio_iso = f_obj.strftime("%Y-%m")
-                except:
-                    nombre_mes_es = "ACTUAL"
-                    mes_inicio_iso = datetime.now().strftime("%Y-%m")
+                f_obj = datetime.now()
+                nombres_meses = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 
+                                 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
+                nombre_mes_es = nombres_meses[f_obj.month]
+                mes_cierre_iso = f_obj.strftime("%Y-%m")
 
                 if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste):
                     if var_publicar.get() and nom_booster.upper() != "PEREZ":
                         try:
-                            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_inicio LIKE ?", (f"{mes_inicio_iso}%",))
+                            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_cierre_iso}%",))
                             num_orden_discord = cursor.fetchone()[0]
                             url = obtener_config_sistema("discord_webhook")
                             
                             if url:
-                                cursor.execute("SELECT COUNT(*) FROM pedidos WHERE booster_nombre = ? AND estado = 'Terminado' AND fecha_inicio LIKE ?", (nom_booster, f"{mes_inicio_iso}%"))
+                                cursor.execute("SELECT COUNT(*) FROM pedidos WHERE booster_nombre = ? AND estado = 'Terminado' AND fecha_fin_real LIKE ?", (nom_booster, f"{mes_cierre_iso}%"))
                                 total_mes_booster = cursor.fetchone()[0]
                                 noti = DiscordNotifier(url)
                                 
