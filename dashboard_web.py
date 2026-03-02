@@ -13,7 +13,7 @@ import extra_streamlit_components as stx
 import time
 
 # ==============================================================================
-# 🕒 ZONA HORARIA PARA STREAMLIT CLOUD
+# 🕒 ZONA HORARIA PARA STREAMLIT CLOUD Y VARIABLES
 # ==============================================================================
 os.environ['TZ'] = 'America/Bogota'
 try:
@@ -22,6 +22,18 @@ except AttributeError:
     pass 
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
+
+# Diccionario universal de meses
+MESES_DICT = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
+    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+}
+
+HOY = datetime.now()
+MES_ACTUAL_NUM = HOY.month
+ANIO_ACTUAL = HOY.year
+MES_ACTUAL_ISO = HOY.strftime("%Y-%m")
+NOMBRE_MES_ACTUAL = MESES_DICT[MES_ACTUAL_NUM].upper()
 
 st.markdown("""
 <style>
@@ -129,24 +141,13 @@ def render_public_ranking():
         </style>
     """, unsafe_allow_html=True)
 
-    meses_es = {
-        "January": "Enero", "February": "Febrero", "March": "Marzo", 
-        "April": "Abril", "May": "Mayo", "June": "Junio", 
-        "July": "Julio", "August": "Agosto", "September": "Septiembre", 
-        "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
-    }
-    
-    mes_actual = datetime.now().strftime("%Y-%m")
-    mes_ingles = datetime.now().strftime("%B")
-    nombre_mes = meses_es.get(mes_ingles, mes_ingles).upper()
-
     st.markdown(f"""
         <div style='text-align: center; margin-top: 20px; margin-bottom: 10px;'>
             <h1 style='color: white; font-size: 100px !important; font-weight: 950; text-transform: uppercase; letter-spacing: 15px; text-shadow: 0 0 30px rgba(255,255,255,0.2); line-height: 0.9; margin: 0;'>
                 🏆 HALL OF FAME 🏆
             </h1>
             <p style='color: #a0a0a0; font-size: 28px; font-weight: 900; text-transform: uppercase; letter-spacing: 5px; margin-top: 20px;'>
-                Temporada de {nombre_mes} <span style='color: #ff0000; text-shadow: 0 0 10px #ff0000;'>🔴</span>
+                Temporada de {NOMBRE_MES_ACTUAL} <span style='color: #ff0000; text-shadow: 0 0 10px #ff0000;'>🔴</span>
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -155,7 +156,7 @@ def render_public_ranking():
         SELECT p.*,
         (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa
         FROM pedidos p
-        WHERE p.fecha_fin_real LIKE '{mes_actual}%'
+        WHERE p.fecha_fin_real LIKE '{MES_ACTUAL_ISO}%'
     """
     df_raw = run_query(query_publica)
 
@@ -163,7 +164,7 @@ def render_public_ranking():
         df_raw['booster_nombre_clean'] = df_raw['booster_nombre'].astype(str).str.upper().str.strip()
         df_raw = df_raw[df_raw['booster_nombre_clean'] != 'PEREZ'].copy()
         if df_raw.empty:
-            st.info(f"No hay pedidos terminados del staff para {nombre_mes} todavía.")
+            st.info(f"No hay pedidos terminados del staff para {NOMBRE_MES_ACTUAL} todavía.")
             st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
             st.stop()
         if 'dias_pedido' not in df_raw.columns:
@@ -193,28 +194,56 @@ def render_public_ranking():
         df_term['ganancia_empresa'] = pd.to_numeric(df_term['ganancia_empresa'], errors='coerce').fillna(0)
         df_term['bote_calc'] = df_term['pago_cliente'] - df_term['pago_booster'] - df_term['ganancia_empresa']
         
+        # --- DESGLOSE PROPORCIONAL PARA LA UI ---
+        df_cfg = run_query("SELECT clave, valor FROM sistema_config WHERE clave IN ('bono_pedido', 'bono_wr')")
+        b_ped = 1.0; b_wr = 1.0
+        if not df_cfg.empty:
+            for _, r in df_cfg.iterrows():
+                try:
+                    if r['clave'] == 'bono_pedido': b_ped = float(r['valor'])
+                    if r['clave'] == 'bono_wr': b_wr = float(r['valor'])
+                except: pass
+                
+        bote_pedidos_hist = 0.0
+        bote_wr_hist = 0.0
+        
+        for _, r in df_term.iterrows():
+            bc = r['bote_calc']
+            if r['wr_val'] >= 60 and (b_ped + b_wr) > 0:
+                ratio = b_ped / (b_ped + b_wr)
+                bote_pedidos_hist += (bc * ratio)
+                bote_wr_hist += (bc * (1 - ratio))
+            else:
+                bote_pedidos_hist += bc
+
         bote_total = df_term['bote_calc'].sum()
 
-        if nombre_mes == "FEBRERO" and datetime.now().year == 2026:
+        ajuste_str = ""
+        if NOMBRE_MES_ACTUAL == "FEBRERO" and ANIO_ACTUAL == 2026:
             bote_total += 11.0
-        elif nombre_mes == "ENERO" and datetime.now().year == 2026:
+            ajuste_str = "<span>📈 Enero:</span> +$11.00 &nbsp;&nbsp;|&nbsp;&nbsp; "
+        elif NOMBRE_MES_ACTUAL == "ENERO" and ANIO_ACTUAL == 2026:
             bote_total -= 5.0
+            ajuste_str = "<span>💸 Ajuste:</span> -$5.00 &nbsp;&nbsp;|&nbsp;&nbsp; "
             
         if bote_total < 0: bote_total = 0.0
 
         st.markdown(f"""
-            <div class="prize-banner">
-                <div class="prize-title">💰 GRAN PREMIO {nombre_mes} 💰</div>
-                <div class="prize-amount">${bote_total:.2f} USD</div>
-            </div>
+<div class="prize-banner">
+    <div class="prize-title">💰 GRAN PREMIO {NOMBRE_MES_ACTUAL} 💰</div>
+    <div class="prize-amount">${bote_total:.2f} USD</div>
+    <div class="prize-breakdown">
+        {ajuste_str}<span>📦 Pedidos:</span> +${bote_pedidos_hist:.2f} &nbsp;&nbsp;|&nbsp;&nbsp; <span>🔥 Calidad WR:</span> +${bote_wr_hist:.2f}
+    </div>
+</div>
         """, unsafe_allow_html=True)
 
         st.markdown(f"""
-            <div class="global-stats-panel">
-                <div class="stat-segment"><p class="stat-title">📦 Pedidos Totales</p><p class="stat-value">{total_pedidos}</p></div>
-                <div class="stat-segment"><p class="stat-title">⚡ Eficiencia</p><p class="stat-value" style="color: #2ecc71;">{texto_efi}</p></div>
-                <div class="stat-segment"><p class="stat-title">📊 WR Global</p><p class="stat-value" style="color: #f1c40f;">{wr_global:.1f}%</p></div>
-            </div>
+<div class="global-stats-panel">
+    <div class="stat-segment"><p class="stat-title">📦 Pedidos Totales</p><p class="stat-value">{total_pedidos}</p></div>
+    <div class="stat-segment"><p class="stat-title">⚡ Eficiencia</p><p class="stat-value" style="color: #2ecc71;">{texto_efi}</p></div>
+    <div class="stat-segment"><p class="stat-title">📊 WR Global</p><p class="stat-value" style="color: #f1c40f;">{wr_global:.1f}%</p></div>
+</div>
         """, unsafe_allow_html=True)
 
         rank_data = []
@@ -250,7 +279,7 @@ def render_public_ranking():
         st.markdown(tabla_html, unsafe_allow_html=True)
 
     else:
-        st.info(f"No hay pedidos terminados registrados para {nombre_mes} todavía.")
+        st.info(f"No hay pedidos terminados registrados para {NOMBRE_MES_ACTUAL} todavía.")
 
     st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
 
@@ -303,7 +332,7 @@ if "t" in query_params:
     with st.form("form_booster"):
         st.write("Ingrese el enlace de telemetría del perfil (OP.GG):")
         opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/...")
-        submit = st.form_submit_button("Registrar Enlace")
+        submit = st.form_submit_button("Registrar Enlace", use_container_width=True)
         
         if submit:
             if opgg_input.strip() == "" or not opgg_input.startswith("http"):
@@ -355,7 +384,7 @@ if not st.session_state.authenticated:
             with st.form("login_form"):
                 password = st.text_input("Credencial de Acceso:", type="password")
                 mantener = st.checkbox("No cerrar sesión.", value=True)
-                submit = st.form_submit_button("Ingresar")
+                submit = st.form_submit_button("Ingresar", use_container_width=True)
                 if submit:
                     try:
                         clave_real = st.secrets["ADMIN_PASSWORD"]
@@ -388,15 +417,6 @@ def clean_num(val):
     try: return float(s)
     except: return 0.0
 
-def format_precio(val):
-    return f"{float(val):.1f}"
-
-def format_num(val):
-    try:
-        return f"{int(val)}" if float(val).is_integer() else f"{round(val, 1)}"
-    except:
-        return str(val)
-
 def format_fecha_latam(fecha_val):
     if pd.isna(fecha_val) or str(fecha_val).strip() == "": return "N/A"
     try: return pd.to_datetime(fecha_val).strftime("%d/%m/%y")
@@ -406,7 +426,7 @@ h_col1, h_col2 = st.columns([8, 1])
 with h_col1:
     st.title(f"🚀 PerezBoost {APP_VERSION} | Monitor")
 with h_col2:
-    if st.button("Cerrar Sesión", key="btn_logout"):
+    if st.button("Cerrar Sesión", key="btn_logout", use_container_width=True):
         st.session_state["logout_solicitado"] = True
         st.session_state.authenticated = False
         try:
@@ -426,20 +446,23 @@ tab_reportes, tab_analytics, tab_inventario, tab_ranking, tab_tracking, tab_gest
 with tab_reportes:
     f1, f2, f3 = st.columns([2, 2, 1])
     meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    mes_actual_idx = datetime.now().month
+    
     with f1:
-        mes_sel = st.selectbox("📅 Mes", meses_nombres, index=mes_actual_idx)
+        mes_sel = st.selectbox("📅 Mes", meses_nombres, index=MES_ACTUAL_NUM)
     with f2:
         df_boosters = run_query("SELECT DISTINCT booster_nombre FROM pedidos")
         booster_sel = st.selectbox("👤 Staff", ["Todos"] + sorted(df_boosters['booster_nombre'].dropna().tolist()) if not df_boosters.empty else ["Todos"])
     with f3:
         st.write("")
-        if st.button("🔄 Refrescar"):  st.cache_data.clear(); st.rerun()
+        if st.button("🔄 Refrescar", use_container_width=True):  
+            st.cache_data.clear()
+            st.rerun()
 
     query_base = "SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
+    
     if mes_sel != "Todos":
         n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
-        query_base += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
+        query_base += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{ANIO_ACTUAL}-{n_mes}%'"
     if booster_sel != "Todos":
         query_base += f" AND booster_nombre = '{booster_sel}'"
 
@@ -478,15 +501,15 @@ with tab_reportes:
             except:
                 txt_dias = "N/A"
 
-            try: wr = float(row.wr) if row.wr else 0.0
-            except: wr = 0.0
-
+            # 🛑 Historical Freeze: Matemática a la inversa
             mi_neto_real = g_empresa
+            
+            # Bloqueamos bote para PEREZ visualmente
             if str(row.booster_nombre).upper() == "PEREZ":
                 valor_bote = 0.0
             else:
                 valor_bote = p_cli - p_boo - mi_neto_real
-
+            
             t_staff += p_boo
             t_neto += mi_neto_real
             t_bote += valor_bote
@@ -505,6 +528,7 @@ with tab_reportes:
                 "Total": f"${p_cli:.2f}"
             })
 
+        # Solo ajustamos métricas si el filtro es Todos o Enero
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -523,12 +547,12 @@ with tab_reportes:
                                             hole=.4,
                                             marker_colors=['#3498db', '#2ecc71', '#f1c40f'])])
             fig_pie.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-            st.plotly_chart(fig_pie, width='stretch')
+            st.plotly_chart(fig_pie, use_container_width=True)
             
         with tc:
             df_mostrar = pd.DataFrame(reporte_data)
             df_mostrar.set_index("#", inplace=True)
-            st.dataframe(df_mostrar, height=380, width='stretch')
+            st.dataframe(df_mostrar, height=380, use_container_width=True)
     else:
         st.info(f"No hay pedidos terminados para el mes de {mes_sel}.")
 
@@ -540,13 +564,11 @@ with tab_analytics:
     st.subheader("🧠 GitAnalytics: Inteligencia de Negocio y Eficiencia")
 
     f1, f2 = st.columns([2, 8])
-    meses_nombres = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    mes_actual_idx = datetime.now().month
     with f1:
-        mes_sel_ana = st.selectbox("📅 Analizar Mes", meses_nombres, index=mes_actual_idx, key="mes_ana")
+        mes_sel_ana = st.selectbox("📅 Analizar Mes", meses_nombres, index=MES_ACTUAL_NUM, key="mes_ana")
     with f2:
         st.write("")
-        if st.button("🔄 Refrescar Gráficas", key="btn_ref_ana"):
+        if st.button("🔄 Refrescar Gráficas", key="btn_ref_ana", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
@@ -562,7 +584,7 @@ with tab_analytics:
 
     if mes_sel_ana != "Todos":
         n_mes = str(meses_nombres.index(mes_sel_ana)).zfill(2)
-        query_bi += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{datetime.now().year}-{n_mes}%'"
+        query_bi += f" AND CAST(fecha_fin_real AS TEXT) LIKE '{ANIO_ACTUAL}-{n_mes}%'"
 
     df_bi = run_query(query_bi)
 
@@ -575,7 +597,9 @@ with tab_analytics:
         
         # 🛑 Historical Freeze
         df_bi['valor_bote'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['ganancia_empresa']
-        
+        # Bloqueamos bote de Perez
+        df_bi['valor_bote'] = df_bi.apply(lambda x: 0.0 if str(x['booster_nombre']).upper() == 'PEREZ' else x['valor_bote'], axis=1)
+
         df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['fecha_fin_dt'] = pd.to_datetime(df_bi['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['dias_entrega'] = (df_bi['fecha_fin_dt'] - df_bi['fecha_inicio_dt']).dt.total_seconds() / (24 * 3600)
@@ -648,7 +672,7 @@ with tab_analytics:
             )
             fig_scatter.add_vline(x=60, line_dash="dash", line_color="#e74c3c", annotation_text="Meta WR")
             fig_scatter.update_layout(showlegend=False, margin=dict(l=0, r=20, t=30, b=0), height=380)
-            st.plotly_chart(fig_scatter, width='stretch')
+            st.plotly_chart(fig_scatter, use_container_width=True)
 
         with col_chart2:
             st.markdown(f"**📈 Run-Rate: Flujo de Caja Real ({mes_sel_ana})**")
@@ -667,7 +691,7 @@ with tab_analytics:
                 color_discrete_sequence=['#2ecc71'] 
             )
             fig_area.update_layout(margin=dict(l=0, r=20, t=30, b=0), height=380)
-            st.plotly_chart(fig_area, width='stretch')
+            st.plotly_chart(fig_area, use_container_width=True)
 
         st.divider()
         st.markdown(f"**🏎️ Ranking de Velocidad Operativa ({mes_sel_ana})**")
@@ -691,7 +715,7 @@ with tab_analytics:
         )
         fig_bar.update_traces(texttemplate='%{text} Días', textposition='outside')
         fig_bar.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=40, t=10, b=0), height=150 + (len(df_staff) * 30))
-        st.plotly_chart(fig_bar, width='stretch')
+        st.plotly_chart(fig_bar, use_container_width=True)
 
     else:
         st.info(f"Aún no hay pedidos **PAGADOS** registrados en {mes_sel_ana} para generar métricas financieras.")
@@ -705,7 +729,7 @@ with tab_inventario:
     with c1:
         st.subheader("📦 Inventario de Cuentas")
     with c2:
-        if st.button("🔄 Refrescar", key="btn_refresh_inv"): 
+        if st.button("🔄 Refrescar", key="btn_refresh_inv", use_container_width=True): 
             st.cache_data.clear()
             st.rerun()
     df_inv = run_query("SELECT id, user_pass, elo_tipo, descripcion FROM inventario ORDER BY elo_tipo")
@@ -723,7 +747,7 @@ with tab_inventario:
             df_mostrar['id_visual'] = range(1, len(df_mostrar) + 1)
             df_tabla = df_mostrar[['id_visual', 'elo_tipo', 'user_pass', 'descripcion']]
             df_tabla.columns = ["Nº", "Rango", "Cuenta (User:Pass)", "Detalle"]
-            st.dataframe(df_tabla, width='stretch', hide_index=True)
+            st.dataframe(df_tabla, use_container_width=True, hide_index=True)
             st.caption(f"Mostrando {len(df_tabla)} cuentas de {filtro_elo}")
         else:
             st.warning(f"No se encontraron cuentas para el rango {filtro_elo}.")
@@ -737,13 +761,11 @@ with tab_inventario:
 with tab_ranking:
     st.subheader("🏆 Hall of Fame: Valor y Eficiencia")
     
-    mes_actual = datetime.now().strftime("%Y-%m")
-
     query_rank = f"""
         SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa 
         FROM pedidos 
         WHERE estado = 'Terminado' AND pago_realizado = 1 
-        AND CAST(fecha_fin_real AS TEXT) LIKE '{mes_actual}%'
+        AND CAST(fecha_fin_real AS TEXT) LIKE '{MES_ACTUAL_ISO}%'
     """
     df_month = run_query(query_rank)
 
@@ -819,13 +841,13 @@ with tab_ranking:
         )
 
         fig_scatter.update_xaxes(autorange="reversed")
-        st.plotly_chart(fig_scatter, width='stretch')
+        st.plotly_chart(fig_scatter, use_container_width=True)
         
         st.write("📋 **Desglose Completo de Staff**")
         df_mostrar = df_grouped[["booster_nombre", "Total_Neto", "USD_por_Dia", "Pedidos", "Promedio_Dias", "WR_Promedio"]].sort_values(by="USD_por_Dia", ascending=False)
         st.dataframe(
             df_mostrar, 
-            width='stretch', 
+            use_container_width=True, 
             hide_index=True,
             column_config={
                 "booster_nombre": "Staff",
@@ -849,7 +871,7 @@ with tab_tracking:
     with c1:
         st.subheader("🔍 Tracking Operativo")
     with c2:
-        if st.button("🔄 Refrescar", key="btn_refresh_track"): 
+        if st.button("🔄 Refrescar", key="btn_refresh_track", use_container_width=True): 
             st.cache_data.clear()
             st.rerun()
 
@@ -888,7 +910,7 @@ with tab_tracking:
 
         st.dataframe(
             df_track, 
-            width='stretch',
+            use_container_width=True,
             hide_index=True,
             column_config={
                 "Notas": st.column_config.TextColumn("Notas", width="medium"),
@@ -913,7 +935,7 @@ with tab_tracking:
             with col2:
                 nuevo_link = st.text_input("Nuevo Link OP.GG:", placeholder="https://...")
             
-            submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace", width='stretch', type="primary")
+            submit_edit = st.form_submit_button("Actualizar / Eliminar Enlace", use_container_width=True, type="primary")
             
             if submit_edit:
                 idx_seleccionado = opciones_selector.index(pedido_visual_sel)
@@ -991,7 +1013,7 @@ with tab_tracking:
             df_anom = df_anom[["Staff", "Elo", "User:Pass", "OP.GG", "Fecha Final", "Estado", "Alerta", "Status"]]
             st.dataframe(
                 df_anom,
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
                 column_config={
                     "Staff": st.column_config.TextColumn("Staff", width="medium"),
@@ -1041,7 +1063,7 @@ with tab_gestion:
                     c5.number_input("Pago Staff $", value=float(clean_num(row['pago_booster'])), disabled=True)
                     marcar_pagado = c6.checkbox("CONFIRMAR PAGO", value=False, 
                                                 help="Al confirmar, este pedido se sumará a tus métricas financieras.")
-                    if st.form_submit_button("🚀 Sincronizar Pago", width='stretch', type="primary"):
+                    if st.form_submit_button("🚀 Sincronizar Pago", use_container_width=True, type="primary"):
                         if marcar_pagado:
                             conn = get_connection()
                             if conn:
@@ -1078,7 +1100,7 @@ def modal_editar_transaccion(fila):
         e_monto = st.number_input("Monto ($):", min_value=0.01, step=1.00, value=float(fila['monto']), format="%.2f")
         e_desc = st.text_input("Descripción:", value=fila['descripcion'])
 
-        guardar = st.form_submit_button("💾 Guardar Cambios", type="primary", width='stretch')
+        guardar = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
         
         if guardar:
             conn = get_connection()
@@ -1099,7 +1121,7 @@ def modal_eliminar_transaccion(id_real, detalle):
     st.write(f"**{detalle}**")
     st.write("Esta acción recalculará tu Binance y no se puede deshacer.")
     
-    if st.button("🗑️ Sí, Eliminar Definitivamente", type="primary", width='stretch'):
+    if st.button("🗑️ Sí, Eliminar Definitivamente", type="primary", use_container_width=True):
         conn = get_connection()
         if conn:
             try:
@@ -1187,7 +1209,7 @@ with tab_binance:
             monto_tx = st.number_input("Monto ($):", min_value=0.01, step=1.00, format="%.2f")
             desc_tx = st.text_input("Descripción (Ej: Retiro a Nequi):")
             
-            if st.form_submit_button("Registrar Movimiento"):
+            if st.form_submit_button("Registrar Movimiento", use_container_width=True):
                 if not desc_tx:
                     st.error("Por favor agrega una descripción.")
                 else:
@@ -1210,11 +1232,10 @@ with tab_binance:
             df_mostrar = df_wallet.copy()
             df_mostrar['fecha_dt'] = pd.to_datetime(df_mostrar['fecha'])
             
-            meses_es = {1:"Enero", 2:"Febrero", 3:"Marzo", 4:"Abril", 5:"Mayo", 6:"Junio", 7:"Julio", 8:"Agosto", 9:"Septiembre", 10:"Octubre", 11:"Noviembre", 12:"Diciembre"}
-            df_mostrar['mes_str'] = df_mostrar['fecha_dt'].dt.month.map(meses_es) + " " + df_mostrar['fecha_dt'].dt.year.astype(str)
+            df_mostrar['mes_str'] = df_mostrar['fecha_dt'].dt.month.map(MESES_DICT) + " " + df_mostrar['fecha_dt'].dt.year.astype(str)
             
             opciones_filtro = ["Todos"] + df_mostrar['mes_str'].unique().tolist()
-            mes_actual_str = meses_es[datetime.now().month] + " " + str(datetime.now().year)
+            mes_actual_str = MESES_DICT[ANIO_ACTUAL] + " " + str(ANIO_ACTUAL) if HOY.month == ANIO_ACTUAL else MESES_DICT[MES_ACTUAL_NUM] + " " + str(ANIO_ACTUAL)
             idx_defecto = opciones_filtro.index(mes_actual_str) if mes_actual_str in opciones_filtro else 0
             
             c_filtro, c_vacio = st.columns([1, 1])
@@ -1239,7 +1260,7 @@ with tab_binance:
                 df_final = df_filtrado[['id_visual', 'fecha_str', 'tipo', 'categoria', 'monto_str', 'descripcion']]
                 df_final.columns = ["Nº", "Fecha", "Tipo", "Caja", "Monto", "Detalle"]
 
-                st.dataframe(df_final, width='stretch', hide_index=True)
+                st.dataframe(df_final, use_container_width=True, hide_index=True)
                 st.divider()
                 st.markdown("### ⚙️ Gestionar Registro")
                 opciones_crud = df_filtrado.apply(lambda r: f"Nº {r['id_visual']} | {r['tipo']} | {r['monto_str']} | {r['descripcion']} (ID:{r['id']})", axis=1).tolist()
@@ -1247,18 +1268,18 @@ with tab_binance:
                 c_btn1, c_btn2, c_btn3 = st.columns(3)
                 
                 with c_btn1:
-                    if st.button("✏️ Editar", width='stretch'):
+                    if st.button("✏️ Editar", use_container_width=True):
                         id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
                         fila_sel = df_wallet[df_wallet['id'] == id_real].iloc[0]
                         modal_editar_transaccion(fila_sel)
                         
                 with c_btn2:
-                    if st.button("🗑️ Eliminar", width='stretch'):
+                    if st.button("🗑️ Eliminar", use_container_width=True):
                         id_real = int(seleccion.split("(ID:")[1].replace(")", "").strip())
                         detalle_mostrar = seleccion.split("(ID:")[0].strip()
                         modal_eliminar_transaccion(id_real, detalle_mostrar)
                         
                 with c_btn3:
-                    if st.button("🔄 Refresh", width='stretch'):
+                    if st.button("🔄 Refresh", use_container_width=True):
                         st.cache_data.clear()
                         st.rerun()
