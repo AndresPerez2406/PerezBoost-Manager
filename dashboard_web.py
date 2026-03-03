@@ -188,13 +188,11 @@ def render_public_ranking():
         total_high = len(df_term[df_term['wr_val'] >= 60])
         wr_global = df_term['wr_val'].mean() if total_pedidos > 0 else 0.0
 
-        # 🛑 Historical Freeze: Calculamos bote restando
         df_term['pago_cliente'] = pd.to_numeric(df_term['pago_cliente'], errors='coerce').fillna(0)
         df_term['pago_booster'] = pd.to_numeric(df_term['pago_booster'], errors='coerce').fillna(0)
         df_term['ganancia_empresa'] = pd.to_numeric(df_term['ganancia_empresa'], errors='coerce').fillna(0)
         df_term['bote_calc'] = df_term['pago_cliente'] - df_term['pago_booster'] - df_term['ganancia_empresa']
-        
-        # --- DESGLOSE PROPORCIONAL PARA LA UI ---
+
         df_cfg = run_query("SELECT clave, valor FROM sistema_config WHERE clave IN ('bono_pedido', 'bono_wr')")
         b_ped = 1.0; b_wr = 1.0
         if not df_cfg.empty:
@@ -501,10 +499,7 @@ with tab_reportes:
             except:
                 txt_dias = "N/A"
 
-            # 🛑 Historical Freeze: Matemática a la inversa
             mi_neto_real = g_empresa
-            
-            # Bloqueamos bote para PEREZ visualmente
             if str(row.booster_nombre).upper() == "PEREZ":
                 valor_bote = 0.0
             else:
@@ -528,7 +523,6 @@ with tab_reportes:
                 "Total": f"${p_cli:.2f}"
             })
 
-        # Solo ajustamos métricas si el filtro es Todos o Enero
         if mes_sel in ["Todos", "Enero"]: 
             t_neto += 5.0
             t_bote -= 5.0
@@ -594,10 +588,7 @@ with tab_analytics:
         df_bi['pago_cliente'] = pd.to_numeric(df_bi['pago_cliente'], errors='coerce').fillna(0)
         df_bi['pago_booster'] = pd.to_numeric(df_bi['pago_booster'], errors='coerce').fillna(0)
         df_bi['ganancia_empresa'] = pd.to_numeric(df_bi['ganancia_empresa'], errors='coerce').fillna(0)
-        
-        # 🛑 Historical Freeze
         df_bi['valor_bote'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['ganancia_empresa']
-        # Bloqueamos bote de Perez
         df_bi['valor_bote'] = df_bi.apply(lambda x: 0.0 if str(x['booster_nombre']).upper() == 'PEREZ' else x['valor_bote'], axis=1)
 
         df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
@@ -774,8 +765,7 @@ with tab_ranking:
         df_month['pago_cliente'] = pd.to_numeric(df_month['pago_cliente'], errors='coerce').fillna(0)
         df_month['pago_booster'] = pd.to_numeric(df_month['pago_booster'], errors='coerce').fillna(0)
         df_month['ganancia_empresa'] = pd.to_numeric(df_month['ganancia_empresa'], errors='coerce').fillna(0)
-        
-        # 🛑 Historical Freeze
+
         df_month['bote'] = df_month['pago_cliente'] - df_month['pago_booster'] - df_month['ganancia_empresa']
         df_month['neto'] = df_month['ganancia_empresa']
         
@@ -1216,8 +1206,7 @@ with tab_binance:
                     if conn:
                         try:
                             import time
-                            nuevo_id = int(time.time() * 1000) % 2147483647 
-                            
+                            nuevo_id = int(time.time() * 1000) % 2147483647
                             with conn.cursor() as cur:
                                 cur.execute("INSERT INTO wallet_perez (id, tipo, categoria, monto, descripcion) VALUES (%s, %s, %s, %s, %s)", 
                                             (nuevo_id, tipo_tx, cat_tx, monto_tx, desc_tx))
@@ -1252,9 +1241,31 @@ with tab_binance:
             else:
                 df_filtrado = df_mostrar.copy()
                 
-            total_retirado = df_filtrado[df_filtrado['tipo'] == 'RETIRO']['monto'].astype(float).sum()
-            st.markdown(f"**Total Retirado ({mes_seleccionado}):** <span style='color:#2ecc71; font-size:20px;'>**${total_retirado:.2f}**</span>", unsafe_allow_html=True)
-            st.write("")
+            df_retiros = df_filtrado[df_filtrado['tipo'] == 'RETIRO']
+            retirado_neto = df_retiros[df_retiros['categoria'] == 'NETO']['monto'].astype(float).sum()
+            retirado_bote = df_retiros[df_retiros['categoria'] == 'BOTE']['monto'].astype(float).sum()
+            total_retirado = retirado_neto + retirado_bote
+            
+            st.markdown(f"""
+                <div style="background-color: #1a1e23; padding: 15px 20px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; margin-top: 5px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="text-align: center;">
+                            <span style="color: #2ecc71; font-size: 11px; font-weight: bold; display: block; letter-spacing: 1px;">MI NETO</span>
+                            <span style="color: white; font-size: 22px; font-weight: bold;">${retirado_neto:.2f}</span>
+                        </div>
+                        <div style="color: #555; font-size: 20px;">+</div>
+                        <div style="text-align: center;">
+                            <span style="color: #f1c40f; font-size: 11px; font-weight: bold; display: block; letter-spacing: 1px;">BOTE STAFF</span>
+                            <span style="color: white; font-size: 22px; font-weight: bold;">${retirado_bote:.2f}</span>
+                        </div>
+                        <div style="color: #555; font-size: 20px;">=</div>
+                        <div style="text-align: center;">
+                            <span style="color: #e74c3c; font-size: 11px; font-weight: bold; display: block; letter-spacing: 1px;">TOTAL RETIRADO</span>
+                            <span style="color: #e74c3c; font-size: 24px; font-weight: bold;">${total_retirado:.2f}</span>
+                        </div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
             
             if df_filtrado.empty:
                 st.warning(f"No hay movimientos para {mes_seleccionado}.")

@@ -1943,11 +1943,13 @@ class PerezBoostApp(ctk.CTk):
                 if not d: raise ValueError("Falta descripción")
                 
                 import time
+                from datetime import datetime
                 nuevo_id = int(time.time() * 1000) % 2147483647 
+                fecha_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 conn = conectar(); cursor = conn.cursor()
-                cursor.execute("INSERT INTO wallet_perez (id, tipo, categoria, monto, descripcion) VALUES (?,?,?,?,?)", 
-                               (nuevo_id, cb_tipo.get(), cb_cat.get(), m, d))
+                cursor.execute("INSERT INTO wallet_perez (id, fecha, tipo, categoria, monto, descripcion) VALUES (?,?,?,?,?,?)", 
+                               (nuevo_id, fecha_local, cb_tipo.get(), cb_cat.get(), m, d))
                 conn.commit(); conn.close()
                 
                 self.mostrar_finanzas()
@@ -1985,7 +1987,7 @@ class PerezBoostApp(ctk.CTk):
         for c, h, w in zip(cols_w, headers_w, widths_w):
             self.tabla_wallet.heading(c, text=h)
             if c == "id_r":
-                self.tabla_wallet.column(c, width=0, stretch=tk.NO) # 🛑 OCULTAMOS EL ID REAL HORRIBLE
+                self.tabla_wallet.column(c, width=0, stretch=tk.NO)
             else:
                 self.tabla_wallet.column(c, width=w, anchor="center" if c != "desc" else "w")
             
