@@ -1150,7 +1150,6 @@ with tab_binance:
             p_boo = clean_num(row['pago_booster'])
             g_emp = clean_num(row['ganancia_empresa'])
             
-            # 🛑 Historical Freeze
             valor_bote = p_cli - p_boo - g_emp
             
             neto_historico += g_emp
@@ -1216,13 +1215,19 @@ with tab_binance:
                     conn = get_connection()
                     if conn:
                         try:
+                            import time
+                            nuevo_id = int(time.time() * 1000) % 2147483647 
+                            
                             with conn.cursor() as cur:
-                                cur.execute("INSERT INTO wallet_perez (tipo, categoria, monto, descripcion) VALUES (%s, %s, %s, %s)", (tipo_tx, cat_tx, monto_tx, desc_tx))
+                                cur.execute("INSERT INTO wallet_perez (id, tipo, categoria, monto, descripcion) VALUES (%s, %s, %s, %s, %s)", 
+                                            (nuevo_id, tipo_tx, cat_tx, monto_tx, desc_tx))
                                 conn.commit()
                             st.success("✅ Registrado con éxito.")
-                            time.sleep(1); st.cache_data.clear(),st.rerun()
-                        except Exception as e: st.error(f"Error: {e}")
-                        finally: conn.close()
+                            time.sleep(1); st.cache_data.clear(); st.rerun()
+                        except Exception as e: 
+                            st.error(f"Error: {e}")
+                        finally: 
+                            conn.close()
 
     with col_hist:
         st.subheader("📜 Historial de Movimientos")

@@ -1976,23 +1976,28 @@ class PerezBoostApp(ctk.CTk):
         ctk.CTkLabel(header_h, text="📜 Historial de Wallet", font=("Arial", 14, "bold")).pack(side="left")
         ctk.CTkButton(header_h, text="🗑️ Eliminar Seleccionado", fg_color="#e74c3c", hover_color="#c0392b", width=150, height=25, command=self.eliminar_movimiento_wallet).pack(side="right")
 
-        cols_w = ("id", "fecha", "tipo", "cat", "monto", "desc")
+        cols_w = ("id_v", "id_r", "fecha", "tipo", "cat", "monto", "desc")
         self.tabla_wallet = ttk.Treeview(hist_frame, columns=cols_w, show="headings", height=8)
         
-        headers_w = ["ID", "FECHA", "TIPO", "CAJA Afectada", "MONTO", "DESCRIPCIÓN"]
-        widths_w = [40, 150, 100, 100, 100, 400]
+        headers_w = ["Nº", "ID_R", "FECHA", "TIPO", "CAJA Afectada", "MONTO", "DESCRIPCIÓN"]
+        widths_w = [40, 0, 150, 100, 100, 100, 400]
+        
         for c, h, w in zip(cols_w, headers_w, widths_w):
             self.tabla_wallet.heading(c, text=h)
-            self.tabla_wallet.column(c, width=w, anchor="center" if c != "desc" else "w")
+            if c == "id_r":
+                self.tabla_wallet.column(c, width=0, stretch=tk.NO) # 🛑 OCULTAMOS EL ID REAL HORRIBLE
+            else:
+                self.tabla_wallet.column(c, width=w, anchor="center" if c != "desc" else "w")
             
         self.tabla_wallet.pack(fill="x", padx=15, pady=10)
         
         conn = conectar(); c = conn.cursor()
-        c.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez ORDER BY id DESC")
-        for row in c.fetchall():
+        c.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez ORDER BY fecha DESC, id DESC")
+        
+        for i, row in enumerate(c.fetchall(), start=1):
             signo = "-" if row[2] == "RETIRO" else "+"
             monto_str = f"{signo}${row[4]:.2f}"
-            self.tabla_wallet.insert("", "end", values=(row[0], str(row[1])[:16], row[2], row[3], monto_str, row[5]))
+            self.tabla_wallet.insert("", "end", values=(i, row[0], str(row[1])[:16], row[2], row[3], monto_str, row[5]))
         conn.close()
 
     def actualizar_lista_liquidaciones(self):
@@ -2034,7 +2039,7 @@ class PerezBoostApp(ctk.CTk):
     def eliminar_movimiento_wallet(self):
         sel = self.tabla_wallet.selection()
         if not sel: return
-        id_mov = self.tabla_wallet.item(sel)['values'][0]
+        id_mov = self.tabla_wallet.item(sel)['values'][1] 
         
         if messagebox.askyesno("Confirmar", "⚠️ ¿Eliminar este movimiento?\n\nSe recalcularán los saldos de Binance."):
             conn = conectar(); c = conn.cursor()
