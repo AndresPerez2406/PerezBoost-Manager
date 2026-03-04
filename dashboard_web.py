@@ -23,7 +23,6 @@ except AttributeError:
 
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas')
 
-# Diccionario universal de meses
 MESES_DICT = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
@@ -161,12 +160,7 @@ def render_public_ranking():
     df_raw = run_query(query_publica)
 
     if not df_raw.empty:
-        df_raw['booster_nombre_clean'] = df_raw['booster_nombre'].astype(str).str.upper().str.strip()
-        df_raw = df_raw[df_raw['booster_nombre_clean'] != 'PEREZ'].copy()
-        if df_raw.empty:
-            st.info(f"No hay pedidos terminados del staff para {NOMBRE_MES_ACTUAL} todavía.")
-            st.markdown('<div class="dev-footer">⚡ DEVELOPED BY ANDRES PEREZ | © 2026 PEREZBOOST</div>', unsafe_allow_html=True)
-            st.stop()
+        
         if 'dias_pedido' not in df_raw.columns:
             df_raw['f_ini'] = pd.to_datetime(df_raw['fecha_inicio'], errors='coerce')
             df_raw['f_fin'] = pd.to_datetime(df_raw['fecha_fin_real'], errors='coerce')
@@ -185,7 +179,9 @@ def render_public_ranking():
 
         total_pedidos = len(df_term)
         df_term['wr_val'] = pd.to_numeric(df_term['wr'], errors='coerce').fillna(0)
-        total_high = len(df_term[df_term['wr_val'] >= 60])
+        if 'bote_wr' not in df_term.columns: df_term['bote_wr'] = 0.0
+        df_term['bote_wr'] = pd.to_numeric(df_term['bote_wr'], errors='coerce').fillna(0.0)
+        total_high = len(df_term[df_term['bote_wr'] > 0])
         wr_global = df_term['wr_val'].mean() if total_pedidos > 0 else 0.0
 
         df_term['pago_cliente'] = pd.to_numeric(df_term['pago_cliente'], errors='coerce').fillna(0)
@@ -193,26 +189,25 @@ def render_public_ranking():
         df_term['ganancia_empresa'] = pd.to_numeric(df_term['ganancia_empresa'], errors='coerce').fillna(0)
         df_term['bote_calc'] = df_term['pago_cliente'] - df_term['pago_booster'] - df_term['ganancia_empresa']
 
-        df_cfg = run_query("SELECT clave, valor FROM sistema_config WHERE clave IN ('bono_pedido', 'bono_wr')")
-        b_ped = 1.0; b_wr = 1.0
-        if not df_cfg.empty:
-            for _, r in df_cfg.iterrows():
-                try:
-                    if r['clave'] == 'bono_pedido': b_ped = float(r['valor'])
-                    if r['clave'] == 'bono_wr': b_wr = float(r['valor'])
-                except: pass
-                
+        if 'bote_pedido' not in df_term.columns: df_term['bote_pedido'] = 0.0
+        if 'bote_wr' not in df_term.columns: df_term['bote_wr'] = 0.0
+        
+        df_term['bote_pedido'] = pd.to_numeric(df_term['bote_pedido'], errors='coerce').fillna(0.0)
+        df_term['bote_wr'] = pd.to_numeric(df_term['bote_wr'], errors='coerce').fillna(0.0)
+        
         bote_pedidos_hist = 0.0
         bote_wr_hist = 0.0
         
         for _, r in df_term.iterrows():
-            bc = r['bote_calc']
-            if r['wr_val'] >= 60 and (b_ped + b_wr) > 0:
-                ratio = b_ped / (b_ped + b_wr)
-                bote_pedidos_hist += (bc * ratio)
-                bote_wr_hist += (bc * (1 - ratio))
-            else:
+            bp = float(r['bote_pedido'])
+            bw = float(r['bote_wr'])
+            bc = float(r['bote_calc'])
+
+            if bp == 0 and bw == 0 and bc > 0:
                 bote_pedidos_hist += bc
+            else:
+                bote_pedidos_hist += bp
+                bote_wr_hist += bw
 
         bote_total = df_term['bote_calc'].sum()
 
@@ -252,8 +247,9 @@ def render_public_ranking():
             puntaje = puntos_tarifas - (abandonos * 10)
             
             terminados = len(df_b_term)
-            df_b_term['wr'] = pd.to_numeric(df_b_term['wr'], errors='coerce').fillna(0)
-            high_wr = len(df_b_term[df_b_term['wr'] >= 60])
+            if 'bote_wr' not in df_b_term.columns: df_b_term['bote_wr'] = 0.0
+            df_b_term['bote_wr'] = pd.to_numeric(df_b_term['bote_wr'], errors='coerce').fillna(0.0)
+            high_wr = len(df_b_term[df_b_term['bote_wr'] > 0])
             
             if terminados > 0 or abandonos > 0:
                 rank_data.append([booster, terminados, high_wr, abandonos, puntaje])
@@ -270,7 +266,7 @@ def render_public_ranking():
                 with c3: st.markdown(f'<div class="rank-card rank-3"><div class="rank-icon">🥉</div><p class="rank-label">RANGO 3</p><p class="rank-name">{df_rank.iloc[2]["booster_nombre"]}</p><p class="rank-pts">{df_rank.iloc[2]["puntaje"]} PTS</p></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        tabla_html = "<table class='esports-table'><thead><tr><th>N°</th><th style='text-align:left'>Staff</th><th>✅ Term.</th><th>🔥 WR 60%</th><th>❌ Aban.</th><th>⭐ Pts</th></tr></thead><tbody>"
+        tabla_html = "<table class='esports-table'><thead><tr><th>N°</th><th style='text-align:left'>Staff</th><th>✅ Term.</th><th>🔥 Bonos WR</th><th>❌ Aban.</th><th>⭐ Pts</th></tr></thead><tbody>"
         for index, row in df_rank.iterrows():
             tabla_html += f"<tr><td>{index+1}°</td><td class='col-staff'>{row['booster_nombre']}</td><td>{row['terminados']}</td><td>{row['high_wr']}</td><td style='color:#e74c3c'>{row['abandonos']}</td><td style='color:#2ecc71; font-weight:bold;'>{row['puntaje']} pts</td></tr>"
         tabla_html += "</tbody></table>"
@@ -456,7 +452,7 @@ with tab_reportes:
             st.cache_data.clear()
             st.rerun()
 
-    query_base = "SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
+    query_base = "SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, bote_pedido, bote_wr FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1"
     
     if mes_sel != "Todos":
         n_mes = str(meses_nombres.index(mes_sel)).zfill(2)
@@ -500,10 +496,13 @@ with tab_reportes:
                 txt_dias = "N/A"
 
             mi_neto_real = g_empresa
-            if str(row.booster_nombre).upper() == "PEREZ":
-                valor_bote = 0.0
-            else:
-                valor_bote = p_cli - p_boo - mi_neto_real
+            try: b_ped = float(row.bote_pedido)
+            except: b_ped = 0.0
+            try: b_wr = float(row.bote_wr)
+            except: b_wr = 0.0
+            
+            calc_viejo = p_cli - p_boo - mi_neto_real
+            valor_bote = (b_ped + b_wr) if (b_ped + b_wr) > 0 else calc_viejo
             
             t_staff += p_boo
             t_neto += mi_neto_real
@@ -569,8 +568,8 @@ with tab_analytics:
     st.divider()
 
     query_bi = """
-        SELECT booster_nombre, wr, pago_cliente, pago_booster, ganancia_empresa, fecha_inicio, fecha_fin_real 
-        FROM pedidos 
+        SELECT booster_nombre, wr, pago_cliente, pago_booster, ganancia_empresa, fecha_inicio, fecha_fin_real, bote_pedido, bote_wr
+        FROM pedidos
         WHERE estado = 'Terminado' 
         AND pago_realizado = 1 
         AND fecha_fin_real IS NOT NULL
@@ -588,8 +587,14 @@ with tab_analytics:
         df_bi['pago_cliente'] = pd.to_numeric(df_bi['pago_cliente'], errors='coerce').fillna(0)
         df_bi['pago_booster'] = pd.to_numeric(df_bi['pago_booster'], errors='coerce').fillna(0)
         df_bi['ganancia_empresa'] = pd.to_numeric(df_bi['ganancia_empresa'], errors='coerce').fillna(0)
-        df_bi['valor_bote'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['ganancia_empresa']
-        df_bi['valor_bote'] = df_bi.apply(lambda x: 0.0 if str(x['booster_nombre']).upper() == 'PEREZ' else x['valor_bote'], axis=1)
+        df_bi['calc_bote'] = df_bi['pago_cliente'] - df_bi['pago_booster'] - df_bi['ganancia_empresa']
+        if 'bote_pedido' not in df_bi.columns: df_bi['bote_pedido'] = 0.0
+        if 'bote_wr' not in df_bi.columns: df_bi['bote_wr'] = 0.0
+        df_bi['valor_bote'] = df_bi.apply(
+            lambda x: (float(x.get('bote_pedido', 0)) + float(x.get('bote_wr', 0))) 
+            if (float(x.get('bote_pedido', 0)) + float(x.get('bote_wr', 0))) > 0 else x['calc_bote'], 
+            axis=1
+        )
 
         df_bi['fecha_inicio_dt'] = pd.to_datetime(df_bi['fecha_inicio'], format='mixed', dayfirst=False, errors='coerce')
         df_bi['fecha_fin_dt'] = pd.to_datetime(df_bi['fecha_fin_real'], format='mixed', dayfirst=False, errors='coerce')

@@ -64,7 +64,9 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
                 pago_realizado INTEGER DEFAULT 0,
                 opgg TEXT,
-                notas TEXT
+                notas TEXT,
+                bote_pedido DOUBLE PRECISION DEFAULT 0,
+                bote_wr DOUBLE PRECISION DEFAULT 0
             );
         """)
 
@@ -74,15 +76,21 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         except: pass
         try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS binance TEXT DEFAULT '';")
         except: pass
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_pedido DOUBLE PRECISION DEFAULT 0;")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_wr DOUBLE PRECISION DEFAULT 0;")
+        except: pass
             
         conn_cloud.commit()
 
         def migrar_tabla(origen, destino):
 
             if origen == "pedidos":
-                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, notas FROM pedidos")
+                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, notas, bote_pedido, bote_wr FROM pedidos")
             elif origen == "boosters":
                 cur_local.execute("SELECT id, nombre FROM boosters")
+            elif origen == "wallet_perez":
+                cur_local.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez")
             else:
                 cur_local.execute(f"SELECT * FROM {origen}")
                 
@@ -109,8 +117,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         id, booster_id, booster_nombre, user_pass, elo_inicial, 
                         fecha_inicio, fecha_limite, estado, elo_final, wr, 
                         fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
-                        ajuste_valor, pago_realizado, notas
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ajuste_valor, pago_realizado, notas, bote_pedido, bote_wr
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         booster_id = EXCLUDED.booster_id,
                         booster_nombre = EXCLUDED.booster_nombre,
@@ -127,7 +135,9 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         ganancia_empresa = EXCLUDED.ganancia_empresa,
                         ajuste_valor = EXCLUDED.ajuste_valor,
                         pago_realizado = EXCLUDED.pago_realizado,
-                        notas = EXCLUDED.notas;
+                        notas = EXCLUDED.notas,
+                        bote_pedido = EXCLUDED.bote_pedido,
+                        bote_wr = EXCLUDED.bote_wr;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "boosters":
@@ -137,6 +147,26 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         nombre = EXCLUDED.nombre;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
+            elif destino == "wallet_perez":
+                query = """
+                    INSERT INTO wallet_perez (id, fecha, tipo, categoria, monto, descripcion) 
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        fecha = EXCLUDED.fecha,
+                        tipo = EXCLUDED.tipo,
+                        categoria = EXCLUDED.categoria,
+                        monto = EXCLUDED.monto,
+                        descripcion = EXCLUDED.descripcion;
+                """
+                filas_limpias_wallet = []
+                for f in filas_L:
+                    f_list = list(f)
+                    if f_list[0] is None:
+                        f_list[0] = int(time.time() * 1000) % 2147483647
+                        time.sleep(0.001)
+                    filas_limpias_wallet.append(tuple(f_list))
+                    
+                extras.execute_batch(cur_cloud, query, filas_limpias_wallet)
             else:
                 cur_cloud.execute(f"DELETE FROM {destino};")
                 cols = len(filas_L[0])
@@ -150,8 +180,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         migrar_tabla("pedidos", "pedidos")
         migrar_tabla("sistema_config", "sistema_config")
         migrar_tabla("wallet_perez", "wallet_perez")
-        
-        for t in ["pedidos", "boosters", "inventario", "logs"]:
+
+        for t in ["pedidos", "boosters", "inventario", "logs", "wallet_perez"]:
             try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
             except: pass
 
