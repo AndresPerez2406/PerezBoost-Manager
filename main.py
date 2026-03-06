@@ -2476,6 +2476,30 @@ class PerezBoostApp(ctk.CTk):
                     print(f"Error guardando nota en inventario: {e}")
                 v.destroy()
                 self.mostrar_pedidos()
+                messagebox.showinfo("Éxito", "Cuenta reportada como DROP. Se ha enviado al inventario y marcado como Abandonada.")
+            else:
+                messagebox.showerror("Error", "Ocurrió un problema interno al intentar abandonar la cuenta.")
+            
+            if registrar_abandono_db(id_r, elo_dejado, wr_dejado):
+                registrar_log("ABANDONO_PEDIDO", f"Pedido #{id_r} Drop. Elo: {elo_dejado} | WR: {wr_dejado} | Razón: {nota_texto}")
+                try:
+                    detalles = []
+                    if elo_dejado: detalles.append(elo_dejado)
+                    if wr_dejado: detalles.append(f"{wr_dejado}% WR")
+                    if nota_texto: detalles.append(nota_texto)
+                    nota_final = "ABANDONADA"
+                    if detalles:
+                        nota_final += ": " + ", ".join(detalles)
+                    
+                    conn = conectar()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE inventario SET descripcion = ? WHERE user_pass = ?", (nota_final, cuenta.strip()))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"Error guardando nota en inventario: {e}")
+                v.destroy()
+                self.mostrar_pedidos()
                 
         ctk.CTkButton(v, text="Confirmar DROP", fg_color="#e74c3c", hover_color="#c0392b", height=40, command=confirm).pack(pady=20)
         

@@ -213,12 +213,21 @@ def registrar_abandono_db(id_pedido, elo_dejado, wr_dejado):
         u_p, elo_orig, nota_antigua = datos
         
         fecha_fin = datetime.now().strftime("%Y-%m-%d %H:%M")
-        cursor.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?) ON CONFLICT(user_pass) DO UPDATE SET elo_tipo=?, descripcion=?", (u_p, elo_orig, nota_antigua, elo_orig, nota_antigua))
+        cursor.execute("SELECT id FROM inventario WHERE user_pass = ?", (u_p,))
+        inv_exists = cursor.fetchone()
+        if inv_exists:
+            cursor.execute("UPDATE inventario SET elo_tipo=?, descripcion=? WHERE id=?", (elo_orig, nota_antigua, inv_exists[0]))
+        else:
+            cursor.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?)", (u_p, elo_orig, nota_antigua))
         
         cursor.execute("UPDATE pedidos SET estado='Abandonado', elo_final=?, wr=?, fecha_fin_real=? WHERE id=?", (elo_dejado, wr_dejado, fecha_fin, id_pedido))
-        conn.commit(); exito = True
-    finally: conn.close();
-    
+        conn.commit()
+        exito = True
+    except Exception as e:
+        print(f"Error crítico en abandono: {e}")
+    finally: 
+        conn.close()
+        
     return exito
 
 def actualizar_pedido_db(id_pedido, datos):

@@ -873,7 +873,7 @@ with tab_tracking:
     query_activos = """
         SELECT id, booster_nombre, elo_inicial, user_pass, opgg, estado, notas 
         FROM pedidos 
-        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado', 'Baneada') 
+        WHERE estado = 'En progreso'
         ORDER BY id DESC
     """
     df_activos = run_query(query_activos)
@@ -961,7 +961,7 @@ with tab_tracking:
     query_audit = """
         SELECT booster_nombre, elo_inicial, user_pass, opgg, fecha_limite, wr, estado 
         FROM pedidos 
-        WHERE estado NOT IN ('Terminado', 'Cancelado', 'Pagado', 'Abandonado')
+        WHERE estado = 'En progreso'
     """
     df_audit = run_query(query_audit)
     
