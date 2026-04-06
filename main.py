@@ -2373,6 +2373,21 @@ class PerezBoostApp(ctk.CTk):
                 if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste, aporte_ped, aporte_wr, cuenta_ranking_val):
                     cursor.execute("UPDATE boosters SET en_ranking = ? WHERE nombre = ?", (cuenta_ranking_val, nom_booster))
                     conn.commit()
+                    try:
+                        import psycopg2 as _pg2
+                        from dotenv import load_dotenv as _ldenv
+                        _ldenv(".env")
+                        import os as _os
+                        _url = _os.getenv("DATABASE_URL")
+                        if _url:
+                            _pg_conn = _pg2.connect(_url)
+                            _pg_cur = _pg_conn.cursor()
+                            _pg_cur.execute("UPDATE boosters SET en_ranking = %s WHERE nombre = %s", (cuenta_ranking_val, nom_booster))
+                            _pg_conn.commit()
+                            _pg_conn.close()
+                            print(f"☁️ en_ranking={cuenta_ranking_val} sincronizado en Supabase para {nom_booster}")
+                    except Exception as _e:
+                        print(f"⚠️ No se pudo sincronizar en_ranking con Supabase: {_e}")
                     if var_publicar.get():
                         try:
                             cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_cierre_iso}%",))

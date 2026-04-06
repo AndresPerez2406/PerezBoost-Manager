@@ -571,7 +571,7 @@ def obtener_ranking_staff_db(filtro_fecha=None):
     conn = conectar(); cursor = conn.cursor()
     if not filtro_fecha: filtro_fecha = datetime.now().strftime("%Y-%m")
     query = """
-    SELECT b.nombre, 
+    SELECT p.booster_nombre as nombre, 
            COUNT(CASE WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 1 THEN 1 END) as terminados,
            COUNT(CASE WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 1 AND p.bote_wr > 0 THEN 1 END) as high_wr,
            COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
@@ -580,10 +580,9 @@ def obtener_ranking_staff_db(filtro_fecha=None):
                WHEN p.estado = 'Abandonado' THEN -10 
                WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 0 THEN 0
                ELSE 0 END), 0) as score
-    FROM boosters b 
-    LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
-    WHERE p.fecha_fin_real LIKE ? AND b.en_ranking = 1
-    GROUP BY b.id, b.nombre 
+    FROM pedidos p
+    WHERE p.fecha_fin_real LIKE ? AND COALESCE((SELECT en_ranking FROM boosters WHERE nombre = p.booster_nombre LIMIT 1), 1) = 1
+    GROUP BY p.booster_nombre 
     HAVING (terminados > 0 OR abandonos > 0)
     ORDER BY score DESC
     """
@@ -641,11 +640,11 @@ def obtener_ranking_db():
     mes_actual = datetime.now().strftime("%Y-%m")
 
     query = """
-        SELECT p.booster_nombre, COUNT(*), AVG(p.wr)
-        FROM pedidos p
-        JOIN boosters b ON p.booster_nombre = b.nombre
-        WHERE p.estado = 'Terminado' AND p.fecha_fin_real LIKE ? AND b.en_ranking = 1
-        GROUP BY p.booster_nombre ORDER BY COUNT(*) DESC
+        SELECT booster_nombre, COUNT(*), AVG(wr)
+        FROM pedidos
+        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
+        AND COALESCE((SELECT en_ranking FROM boosters WHERE nombre = booster_nombre LIMIT 1), 1) = 1
+        GROUP BY booster_nombre ORDER BY COUNT(*) DESC
     """
     cursor.execute(query, (f"{mes_actual}%",))
     res = cursor.fetchall(); conn.close(); return res
