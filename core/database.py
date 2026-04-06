@@ -582,7 +582,7 @@ def obtener_ranking_staff_db(filtro_fecha=None):
                ELSE 0 END), 0) as score
     FROM boosters b 
     LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 
-    WHERE p.fecha_fin_real LIKE ?
+    WHERE p.fecha_fin_real LIKE ? AND b.en_ranking = 1
     GROUP BY b.id, b.nombre 
     HAVING (terminados > 0 OR abandonos > 0)
     ORDER BY score DESC
@@ -641,10 +641,11 @@ def obtener_ranking_db():
     mes_actual = datetime.now().strftime("%Y-%m")
 
     query = """
-        SELECT booster_nombre, COUNT(*), AVG(wr)
-        FROM pedidos
-        WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?
-        GROUP BY booster_nombre ORDER BY COUNT(*) DESC
+        SELECT p.booster_nombre, COUNT(*), AVG(p.wr)
+        FROM pedidos p
+        JOIN boosters b ON p.booster_nombre = b.nombre
+        WHERE p.estado = 'Terminado' AND p.fecha_fin_real LIKE ? AND b.en_ranking = 1
+        GROUP BY p.booster_nombre ORDER BY COUNT(*) DESC
     """
     cursor.execute(query, (f"{mes_actual}%",))
     res = cursor.fetchall(); conn.close(); return res

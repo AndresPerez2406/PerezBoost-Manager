@@ -155,7 +155,8 @@ def render_public_ranking():
         SELECT p.*,
         (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa
         FROM pedidos p
-        WHERE p.fecha_fin_real LIKE '{MES_ACTUAL_ISO}%'
+        JOIN boosters b ON p.booster_nombre = b.nombre
+        WHERE p.fecha_fin_real LIKE '{MES_ACTUAL_ISO}%' AND b.en_ranking = 1
     """
     df_raw = run_query(query_publica)
 
@@ -758,10 +759,11 @@ with tab_ranking:
     st.subheader("🏆 Hall of Fame: Valor y Eficiencia")
     
     query_rank = f"""
-        SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa 
-        FROM pedidos 
-        WHERE estado = 'Terminado' AND pago_realizado = 1 
-        AND CAST(fecha_fin_real AS TEXT) LIKE '{MES_ACTUAL_ISO}%'
+        SELECT p.booster_nombre, p.wr, p.fecha_inicio, p.fecha_fin_real, p.pago_cliente, p.pago_booster, p.ganancia_empresa 
+        FROM pedidos p
+        JOIN boosters b ON p.booster_nombre = b.nombre
+        WHERE p.estado = 'Terminado' AND p.pago_realizado = 1 
+        AND CAST(p.fecha_fin_real AS TEXT) LIKE '{MES_ACTUAL_ISO}%' AND b.en_ranking = 1
     """
     df_month = run_query(query_rank)
 
