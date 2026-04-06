@@ -47,7 +47,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
             conn_cloud = psycopg2.connect(**connection_params)
         cur_cloud = conn_cloud.cursor()
 
-        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE, binance TEXT);")
+        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE, binance TEXT, en_ranking INTEGER DEFAULT 1);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
@@ -76,6 +76,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         except: pass
         try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS binance TEXT DEFAULT '';")
         except: pass
+        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS en_ranking INTEGER DEFAULT 1;")
+        except: pass
         try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_pedido DOUBLE PRECISION DEFAULT 0;")
         except: pass
         try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_wr DOUBLE PRECISION DEFAULT 0;")
@@ -88,7 +90,7 @@ def _motor_subida_postgres(nombre_nube, connection_params):
             if origen == "pedidos":
                 cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, notas, bote_pedido, bote_wr FROM pedidos")
             elif origen == "boosters":
-                cur_local.execute("SELECT id, nombre FROM boosters")
+                cur_local.execute("SELECT id, nombre, binance, en_ranking FROM boosters")
             elif origen == "wallet_perez":
                 cur_local.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez")
             else:
@@ -142,9 +144,11 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "boosters":
                 query = """
-                    INSERT INTO boosters (id, nombre) VALUES (%s, %s)
+                    INSERT INTO boosters (id, nombre, binance, en_ranking) VALUES (%s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
-                        nombre = EXCLUDED.nombre;
+                        nombre = EXCLUDED.nombre,
+                        binance = EXCLUDED.binance,
+                        en_ranking = EXCLUDED.en_ranking;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "wallet_perez":
