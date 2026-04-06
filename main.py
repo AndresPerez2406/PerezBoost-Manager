@@ -1208,8 +1208,9 @@ class PerezBoostApp(ctk.CTk):
         filtros_frame.pack(fill="x", pady=(0, 20))
         ctk.CTkLabel(filtros_frame, text="📊 ANALÍTICA FINANCIERA", font=("Arial", 16, "bold")).pack(side="left", padx=20)
         
-        self.combo_mes = ctk.CTkOptionMenu(filtros_frame, width=120,
-            values=["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
+        meses = ["Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        self.combo_mes = ctk.CTkOptionMenu(filtros_frame, width=120, values=meses)
+        self.combo_mes.set(meses[datetime.now().month])
         self.combo_mes.pack(side="left", padx=10)
         
         try:
@@ -1282,7 +1283,7 @@ class PerezBoostApp(ctk.CTk):
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr, fecha_fin_real, pago_realizado, ganancia_empresa, bote_pedido, bote_wr
+                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr, fecha_fin_real, pago_realizado, ganancia_empresa, bote_pedido, bote_wr, cuenta_ranking
                 FROM pedidos WHERE id = ?
             """, (id_pedido,))
             datos_db = cur.fetchone()
@@ -1309,7 +1310,11 @@ class PerezBoostApp(ctk.CTk):
 
         if not datos_db: return
 
-        staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr = datos_db
+        try:
+            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr, cuenta_ranking = datos_db
+        except ValueError:
+            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr = datos_db
+            cuenta_ranking = 1
 
         pago_cli_actual = float(pago_cli_actual or 0)
         pago_staff_actual = float(pago_staff_actual or 0)
@@ -1379,14 +1384,19 @@ class PerezBoostApp(ctk.CTk):
         e_b_ped.bind("<KeyRelease>", recalcular_neto)
         e_b_wr.bind("<KeyRelease>", recalcular_neto)
 
-        ctk.CTkLabel(v, text="Estado del Pago:", font=("Arial", 11, "bold")).pack(pady=(10,0))
+        ctk.CTkLabel(v, text="Estado del Pago y Ranking:", font=("Arial", 11, "bold")).pack(pady=(10,0))
         var_pago = ctk.BooleanVar(value=True if pago_actual == 1 else False)
         switch_pago = ctk.CTkSwitch(v, text="Marcar como PAGADO", variable=var_pago, progress_color="#2ecc71")
         switch_pago.pack(pady=5)
 
+        var_rank = ctk.BooleanVar(value=True if (cuenta_ranking == 1 or cuenta_ranking is None) else False)
+        switch_rank = ctk.CTkSwitch(v, text="Contar para Ranking Mensual", variable=var_rank, progress_color="#e67e22")
+        switch_rank.pack(pady=5)
+
         def guardar():
             try:
                 nuevo_estado_pago = 1 if var_pago.get() else 0
+                nuevo_estado_rank = 1 if var_rank.get() else 0
                 nueva_fecha = e_fecha.get().strip()
                 if not nueva_fecha: nueva_fecha = None
 
@@ -1402,9 +1412,9 @@ class PerezBoostApp(ctk.CTk):
 
                 cur.execute("""
                     UPDATE pedidos 
-                    SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, ganancia_empresa=?, fecha_fin_real=?, pago_realizado=?, bote_pedido=?, bote_wr=?
+                    SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, ganancia_empresa=?, fecha_fin_real=?, pago_realizado=?, bote_pedido=?, bote_wr=?, cuenta_ranking=?
                     WHERE id=?
-                """, (combo_staff.get(), combo_elo.get(), val_wr, val_cobro, val_staff, val_neto, nueva_fecha, nuevo_estado_pago, val_bp, val_bw, id_pedido))
+                """, (combo_staff.get(), combo_elo.get(), val_wr, val_cobro, val_staff, val_neto, nueva_fecha, nuevo_estado_pago, val_bp, val_bw, nuevo_estado_rank, id_pedido))
 
                 conn.commit(); conn.close()
                 v.destroy()
@@ -2221,6 +2231,14 @@ class PerezBoostApp(ctk.CTk):
         v.attributes("-topmost", True)
         v.title(f"Finalizar Orden #{num_orden_mes}")
 
+        conn = conectar(); cursor = conn.cursor()
+        cursor.execute("SELECT en_ranking FROM boosters WHERE nombre = ?", (nom_booster,))
+        res = cursor.fetchone()
+        booster_en_ranking = True
+        if res and res[0] == 0:
+            booster_en_ranking = False
+        conn.close()
+
         ctk.CTkLabel(v, text="¿En qué Elo quedó la cuenta?").pack(pady=(10,0))
         cb_div = ctk.CTkOptionMenu(v, values=tarifas, width=250)
         cb_div.pack(pady=5)
@@ -2264,7 +2282,25 @@ class PerezBoostApp(ctk.CTk):
             variable=var_publicar, fg_color="#5865F2",
             checkbox_height=20, checkbox_width=20
         )
-        chk_discord.pack(pady=(20, 10))
+        chk_discord.pack(pady=(15, 5))
+
+        def toggle_ranking():
+            if var_ranking.get():
+                chk_ped.configure(state="normal")
+                var_ped.set(True)
+            else:
+                chk_ped.configure(state="disabled")
+                var_ped.set(False)
+
+        var_ranking = ctk.BooleanVar(value=booster_en_ranking)
+        chk_ranking = ctk.CTkCheckBox(
+            v, text="🏆 Sumar al Ranking Mensual", 
+            variable=var_ranking, fg_color="#e67e22",
+            checkbox_height=20, checkbox_width=20,
+            command=toggle_ranking
+        )
+        chk_ranking.pack(pady=(5, 10))
+        toggle_ranking()
 
         def finish():
             try:
@@ -2285,19 +2321,46 @@ class PerezBoostApp(ctk.CTk):
                 cursor.execute("SELECT precio_cliente, margen_perez FROM config_precios WHERE division = ?", (elo_fin,))
                 tarifa = cursor.fetchone()
 
-                aporte_ped = bp_val if var_ped.get() else 0.0
-                aporte_wr = bwr_val if var_wr.get() else 0.0
+                cuenta_ranking_val = 1 if var_ranking.get() else 0
+
+                val_wr_pedido = 0.0
+
+                if cuenta_ranking_val == 0:
+                    val_wr_pedido = bwr_val if var_wr.get() else 0.0
+                    aporte_ped = 0.0
+                    aporte_wr = 0.0
+                    sumar_al_booster_wr = val_wr_pedido
+                else:
+                    aporte_ped = bp_val if var_ped.get() else 0.0
+                    aporte_wr = bwr_val if var_wr.get() else 0.0
+                    val_wr_pedido = aporte_wr
+                    sumar_al_booster_wr = 0.0
 
                 if tarifa:
                     p_cli_base = float(tarifa[0])
                     g_per_base = float(tarifa[1])
 
-                    p_cliente = p_cli_base + aporte_wr
-                    # Ningún trato especial para PEREZ
-                    p_booster = (p_cli_base - g_per_base) + ajuste
+                    p_cliente = p_cli_base + val_wr_pedido
+                    p_booster = (p_cli_base - g_per_base) + ajuste + sumar_al_booster_wr
                     g_perez = (g_per_base - aporte_ped) - ajuste
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
+
+                resumen_msg = f"📋 RESUMEN DEL PEDIDO\n" \
+                              f"{'='*30}\n" \
+                              f"Booster: {nom_booster}\n" \
+                              f"Elo Final: {elo_fin}\n" \
+                              f"WinRate: {wr}%\n" \
+                              f"{'='*30}\n" \
+                              f"💸 Pago al Booster: ${p_booster:.2f}\n" \
+                              f"📈 Ganancia Empresa: ${g_perez:.2f}\n" \
+                              f"💰 Aporte al Bote: ${(aporte_ped + aporte_wr):.2f}\n" \
+                              f"{'='*30}\n\n" \
+                              f"¿Estás seguro de confirmar y liquidar este pedido?"
+
+                if not messagebox.askyesno("Confirmación del Sistema", resumen_msg, parent=v):
+                    conn.close()
+                    return
 
                 f_obj = datetime.now()
                 nombres_meses = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 
@@ -2305,7 +2368,11 @@ class PerezBoostApp(ctk.CTk):
                 nombre_mes_es = nombres_meses[f_obj.month]
                 mes_cierre_iso = f_obj.strftime("%Y-%m")
 
-                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste, aporte_ped, aporte_wr):
+                cuenta_ranking_val = 1 if var_ranking.get() else 0
+
+                if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste, aporte_ped, aporte_wr, cuenta_ranking_val):
+                    cursor.execute("UPDATE boosters SET en_ranking = ? WHERE nombre = ?", (cuenta_ranking_val, nom_booster))
+                    conn.commit()
                     if var_publicar.get():
                         try:
                             cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_cierre_iso}%",))
@@ -2325,6 +2392,9 @@ class PerezBoostApp(ctk.CTk):
                                     {"name": "💸 PAGO", "value": f"**${p_booster:.2f}**", "inline": True},
                                     {"name": "⚙️ AJUSTE", "value": f"**${ajuste:.2f}**", "inline": True}
                                 ]
+                                
+                                if cuenta_ranking_val == 0:
+                                    campos_embed.append({"name": "⚠️ ALERTA RANKING", "value": f"❌ Este pedido no suma bono pedido, el booster se bajó del ranking mensual de {nombre_mes_es}", "inline": False})
 
                                 noti.enviar_notificacion(
                                     titulo=f"✅ PEDIDO #{num_orden_discord} DE {nombre_mes_es}", 
@@ -2337,7 +2407,6 @@ class PerezBoostApp(ctk.CTk):
 
                     conn.close() 
                     registrar_log("PEDIDO_FINALIZADO", f"Orden #{id_r} cerrada. Ajuste: {ajuste}.")
-                    messagebox.showinfo("Éxito", f"¡Pedido finalizado!\nPago Staff: ${p_booster:.2f}\nTu Neto: ${g_perez:.2f}\nAporte al Bote: ${(aporte_ped + aporte_wr):.2f}", parent=v)
                     v.destroy()
                     self.mostrar_pedidos()
                 else:

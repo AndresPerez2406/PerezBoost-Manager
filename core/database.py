@@ -62,6 +62,10 @@ def inicializar_db():
     except: pass
     try: cursor.execute('ALTER TABLE pedidos ADD COLUMN bote_wr REAL DEFAULT 0')
     except: pass
+    try: cursor.execute('ALTER TABLE pedidos ADD COLUMN cuenta_ranking INTEGER DEFAULT 1')
+    except: pass
+    try: cursor.execute('ALTER TABLE boosters ADD COLUMN en_ranking INTEGER DEFAULT 1')
+    except: pass
 
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')
@@ -261,7 +265,7 @@ def obtener_resumen_alertas():
     conn.close()
     return vencidos, stock
     
-def finalizar_pedido_db(id_r, wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor, bote_ped=0.0, bote_w=0.0):
+def finalizar_pedido_db(id_r, wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor, bote_ped=0.0, bote_w=0.0, cuenta_ranking=1):
     try:
         conn = conectar()
         cursor = conn.cursor()
@@ -270,9 +274,9 @@ def finalizar_pedido_db(id_r, wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, 
             SET estado = 'Terminado', wr = ?, fecha_fin_real = ?, 
                 elo_final = ?, ganancia_empresa = ?, pago_booster = ?, 
                 pago_cliente = ?, ajuste_valor = ?,
-                bote_pedido = ?, bote_wr = ?
+                bote_pedido = ?, bote_wr = ?, cuenta_ranking = ?
             WHERE id = ?
-        """, (wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor, bote_ped, bote_w, id_r))
+        """, (wr, fecha_hoy, elo_fin, ganancia, pago_b, pago_c, ajuste_valor, bote_ped, bote_w, cuenta_ranking, id_r))
         conn.commit()
         conn.close()
         return True
@@ -568,12 +572,13 @@ def obtener_ranking_staff_db(filtro_fecha=None):
     if not filtro_fecha: filtro_fecha = datetime.now().strftime("%Y-%m")
     query = """
     SELECT b.nombre, 
-           COUNT(CASE WHEN p.estado = 'Terminado' THEN 1 END) as terminados,
-           COUNT(CASE WHEN p.estado = 'Terminado' AND p.bote_wr > 0 THEN 1 END) as high_wr,
+           COUNT(CASE WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 1 THEN 1 END) as terminados,
+           COUNT(CASE WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 1 AND p.bote_wr > 0 THEN 1 END) as high_wr,
            COUNT(CASE WHEN p.estado = 'Abandonado' THEN 1 END) as abandonos,
            COALESCE(SUM(CASE 
-               WHEN p.estado = 'Terminado' THEN COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
+               WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 1 THEN COALESCE((SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final))), 2)
                WHEN p.estado = 'Abandonado' THEN -10 
+               WHEN p.estado = 'Terminado' AND IFNULL(p.cuenta_ranking, 1) = 0 THEN 0
                ELSE 0 END), 0) as score
     FROM boosters b 
     LEFT JOIN pedidos p ON b.nombre = p.booster_nombre 

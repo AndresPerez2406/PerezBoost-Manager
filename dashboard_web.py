@@ -968,6 +968,9 @@ with tab_tracking:
     if not df_audit.empty:
         anomalias = []
         for _, row in df_audit.iterrows():
+            alerta_texto = ""
+            status_icono = ""
+            
             wr = clean_num(row['wr'])
             try: 
                 fecha_lim_dt = pd.to_datetime(row['fecha_limite']).date()
@@ -976,19 +979,25 @@ with tab_tracking:
             except: 
                 dias = 99
             
-            alerta_texto = ""
-            status_icono = ""
+            has_opgg = pd.notna(row['opgg']) and str(row['opgg']).strip() != ""
             
-            if wr < 50 and wr > 0: 
-                alerta_texto = f"WR Bajo ({format_num(wr)}%)"
+            if not has_opgg and dias <= -3:
+                if dias <= -5:
+                    alerta_texto = f"MULTA 25%: Falta OP.GG ({(dias * -1)}d post-límite)"
+                    status_icono = "🔴"
+                else:
+                    alerta_texto = f"Atención: Falta OP.GG ({(dias * -1)}d post-límite)"
+                    status_icono = "🟡"
+            elif wr < 50 and wr > 0: 
+                alerta_texto = f"WR Bajo ({wr:.1f}%)"
                 status_icono = "🔴"
-            if dias <= 1: 
+            elif dias <= 1: 
                 alerta_texto = "RETRASO CRÍTICO" if not alerta_texto else f"{alerta_texto} & RETRASO"
                 status_icono = "🔴"
             elif dias <= 3 and not status_icono: 
                 alerta_texto = "Vence pronto"
                 status_icono = "🟡"
-                
+
             if alerta_texto:
                 link_audit = row.get('opgg') if pd.notna(row.get('opgg')) and str(row.get('opgg')).strip() != "" else None
 
