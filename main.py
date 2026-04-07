@@ -26,7 +26,7 @@ from core.database import (
     obtener_pedidos_mes_actual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
     obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
     obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
-    obtener_resumen_financiero_real, ya_se_ejecuto_hoy
+    obtener_resumen_financiero_real, ya_se_ejecuto_hoy, toggle_ranking_booster
 )
 
 from core.logic import (
@@ -209,7 +209,7 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             print(f"Error formateando fecha: {e}")
         URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
-        texto_final = f"{cuenta} [{nota_cuenta.upper()}] - Límite: {fecha_bonita} - {URL_DASHBOARD}/?t={token_seguro}"
+        texto_final = f"{URL_DASHBOARD}/?t={token_seguro}"
         self.clipboard_clear()
         self.clipboard_append(texto_final)
         self.update() 
@@ -866,29 +866,77 @@ class PerezBoostApp(ctk.CTk):
         self.entry_busqueda_b.pack(side="right")
         ctk.CTkButton(header, text="🔍", width=40, command=self.filtrar_boosters).pack(side="right", padx=5)
 
-        cols = ("id_v", "id_r", "nombre")
+        # Leyenda de estado
+        leyenda = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        leyenda.pack(padx=30, fill="x")
+        ctk.CTkLabel(leyenda, text="✅ En Ranking  |  ❌ Fuera del Ranking",
+                     font=("Arial", 11), text_color="#7f8c8d").pack(side="left")
+
+        cols = ("id_v", "id_r", "nombre", "ranking")
         self.tabla_boosters = ttk.Treeview(self.content_frame, columns=cols, show="headings")
         self.tabla_boosters.heading("id_v", text="#")
         self.tabla_boosters.heading("nombre", text="NOMBRE DEL STAFF")
+        self.tabla_boosters.heading("ranking", text="ESTADO RANKING")
         self.tabla_boosters.column("id_v", width=60, anchor="center", stretch=False)
-        self.tabla_boosters.column("id_r", width=0, stretch=tk.NO) 
-        self.tabla_boosters.column("nombre", width=600, anchor="center") 
+        self.tabla_boosters.column("id_r", width=0, stretch=tk.NO)
+        self.tabla_boosters.column("nombre", width=480, anchor="center")
+        self.tabla_boosters.column("ranking", width=160, anchor="center", stretch=False)
+
+        self.tabla_boosters.tag_configure('en_ranking', foreground='#2ecc71')
+        self.tabla_boosters.tag_configure('fuera_ranking', foreground='#e74c3c')
+
+        self.tabla_boosters.bind("<Double-1>", self._on_doble_click_ranking)
 
         self.tabla_boosters.pack(padx=30, pady=10, fill="both", expand=True)
         self.filtrar_boosters()
+
+        # Instrucción de uso
+        ctk.CTkLabel(self.content_frame,
+                     text="💡 Doble clic sobre un booster para cambiar su estado de Ranking",
+                     font=("Arial", 11, "italic"), text_color="#f39c12").pack(pady=(0, 5))
 
         footer = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         footer.pack(pady=(5, 20), padx=30, fill="x")
         ctk.CTkButton(footer, text="+ Nuevo Booster", fg_color="#2ecc71", command=self.abrir_ventana_booster).pack(side="left")
         ctk.CTkButton(footer, text="📝 Editar", fg_color="#f39c12", command=self.abrir_ventana_editar_booster).pack(side="left", padx=5)
+        ctk.CTkButton(footer, text="🏆 Toggle Ranking", fg_color="#8e44ad", hover_color="#9b59b6",
+                      command=self._toggle_ranking_seleccionado).pack(side="left", padx=5)
         ctk.CTkButton(footer, text="🗑️ Despedir", fg_color="#e74c3c", command=self.eliminar_booster_seleccionado).pack(side="right")
 
     def filtrar_boosters(self):
         query = self.entry_busqueda_b.get().lower()
         for i in self.tabla_boosters.get_children(): self.tabla_boosters.delete(i)
         for i, b in enumerate(obtener_boosters_db(), start=1):
+            # b = (id, nombre, en_ranking)
             if query == "" or query in b[1].lower():
-                self.tabla_boosters.insert("", tk.END, values=(i, b[0], b[1]))
+                en_rank = b[2] if len(b) > 2 else 1
+                estado_txt = "✅ En Ranking" if en_rank else "❌ Fuera"
+                tag = 'en_ranking' if en_rank else 'fuera_ranking'
+                self.tabla_boosters.insert("", tk.END, values=(i, b[0], b[1], estado_txt), tags=(tag,))
+
+    def _on_doble_click_ranking(self, event):
+        """Doble clic en la tabla cambia el estado de ranking del booster."""
+        sel = self.tabla_boosters.selection()
+        if not sel: return
+        self._toggle_ranking_seleccionado()
+
+    def _toggle_ranking_seleccionado(self):
+        """Cambia el estado en_ranking del booster seleccionado."""
+        sel = self.tabla_boosters.selection()
+        if not sel:
+            messagebox.showwarning("Selección", "Selecciona un booster primero.")
+            return
+        item = self.tabla_boosters.item(sel[0])
+        id_r = item['values'][1]
+        nombre = item['values'][2]
+        estado_actual_txt = item['values'][3]
+        nuevo_estado = 0 if "En Ranking" in str(estado_actual_txt) else 1
+        etiqueta = "✅ En Ranking" if nuevo_estado else "❌ Fuera del Ranking"
+        if toggle_ranking_booster(id_r, nuevo_estado):
+            self.filtrar_boosters()
+            messagebox.showinfo("Ranking", f"{nombre}\nNuevo estado: {etiqueta}")
+        else:
+            messagebox.showerror("Error", "No se pudo actualizar el estado.")
 
     # =========================================================================
     # SECCIÓN: INVENTARIO (STOCK)

@@ -309,7 +309,7 @@ if "t" in query_params:
         st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
         st.stop()
     
-    df_info = run_query(f"SELECT booster_nombre, user_pass FROM pedidos WHERE id = {id_pedido}")
+    df_info = run_query(f"SELECT booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, notas FROM pedidos WHERE id = {id_pedido}")
     
     if df_info.empty:
         st.error("Error: El pedido solicitado no existe en la base de datos.")
@@ -317,17 +317,118 @@ if "t" in query_params:
         
     booster_asignado = df_info.iloc[0]['booster_nombre']
     user_pass_asignado = df_info.iloc[0]['user_pass']
+    elo_llevar = df_info.iloc[0]['elo_inicial']
+    fecha_inicio_str = df_info.iloc[0]['fecha_inicio']
+    fecha_limite_ped = str(df_info.iloc[0]['fecha_limite']).split(" ")[0] if pd.notna(df_info.iloc[0]['fecha_limite']) else ""
     
-    st.title("Enlace de Cuenta Operativa")
-    st.info(f"Asignación confirmada para: **{booster_asignado}**")
+    notas_pedido = df_info.iloc[0].get('notas', '')
+    if pd.isna(notas_pedido) or str(notas_pedido).strip() == "":
+        notas_pedido = "Ninguna"
+    else:
+        notas_pedido = str(notas_pedido).strip()
     
-    st.write("**Credenciales de acceso asignadas:**")
-    st.code(user_pass_asignado, language="text")
+    dias_restantes_opgg = "N/A"
+    try:
+        if pd.notna(fecha_inicio_str) and str(fecha_inicio_str).strip() != "":
+            fecha_inicio = pd.to_datetime(fecha_inicio_str)
+            fecha_limite_opgg = fecha_inicio + timedelta(days=5)
+            fecha_limite_str = fecha_limite_opgg.strftime("%d/%m/%y")
+            
+            d_res_o = (fecha_limite_opgg - datetime.now()).days
+            d_res_o = max(0, d_res_o)
+            if d_res_o == 0:
+                dias_restantes_opgg = "¡Hoy!"
+            elif d_res_o == 1:
+                dias_restantes_opgg = "1 día"
+            else:
+                dias_restantes_opgg = f"{d_res_o} días"
+        else:
+            fecha_limite_str = "No definida"
+    except:
+        fecha_limite_str = "No definida"
+
+    mes_actual_iso = datetime.now().strftime("%Y-%m")
+    q_count = f"SELECT COUNT(*) as ord_count FROM pedidos WHERE booster_nombre = '{booster_asignado}' AND fecha_inicio LIKE '{mes_actual_iso}%'"
+    df_count = run_query(q_count)
+    cuenta_n_mes = df_count.iloc[0]['ord_count'] if not df_count.empty else 1
+    if cuenta_n_mes == 0: cuenta_n_mes = 1
+
+    dias_restantes = "N/A"
+    fecha_limite_ped_ui = "No asignada"
+    try:
+        if fecha_limite_ped != "":
+            f_ped = pd.to_datetime(fecha_limite_ped)
+            fecha_limite_ped_ui = f_ped.strftime("%d/%m/%y")
+            d_res = (f_ped - datetime.now()).days
+            d_res = max(0, d_res)
+            if d_res == 0:
+                dias_restantes = "¡Hoy!"
+            elif d_res == 1:
+                dias_restantes = "1 día (Mañana)"
+            else:
+                dias_restantes = f"{d_res} días restantes"
+        else:
+            dias_restantes = "Fecha no asignada"
+    except:
+        dias_restantes = "Fecha no asignada"
+            
+    st.markdown("""
+<style>
+.card { background: linear-gradient(145deg, #0d0d12, #121218); border-radius: 15px; padding: 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); border: 1px solid #1f1f2e; text-align: center; margin-bottom: 25px; transition: transform 0.3s, border-color 0.3s; }
+.card:hover { border-color: #4a4a6a; transform: translateY(-5px); }
+.title_box { color: #e2e8f0; font-size: 32px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 2px 5px rgba(0,0,0,0.5);}
+.subtitle { color: #64748b; font-size: 17px; margin-bottom: 25px; letter-spacing: 2px; font-weight: bold; text-transform: uppercase;}
+.info-box { background-color: #12121a; border-radius: 12px; padding: 18px 20px; margin: 12px 0; display: flex; flex-direction: column; border: 1px solid #1f1f2e; border-left: 5px solid #475569; text-align: left;}
+.info-box .label { color: #64748b; font-size: 13px; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
+.info-box .value { color: #f8fafc; font-size: 20px; font-weight: 700; margin-top: 5px; }
+.alert-box { background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 15px; color: #fbbf24; font-weight: 800; margin: 25px 0 10px 0; }
+.earnings-badge { background: #1e293b; color: #94a3b8; padding: 10px 20px; border-radius: 30px; font-size: 16px; font-weight: 900; display: inline-block; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; border: 1px solid #334155; }
+div[data-testid="stForm"] { background: #0d0d12; border: 1px solid #1f1f2e; border-radius: 12px; padding: 25px; }
+button[kind="primaryFormSubmit"] { background-color: #1e293b !important; color: #cbd5e1 !important; font-weight: 900 !important; font-size: 18px !important; text-transform: uppercase !important; letter-spacing: 1px !important; border-radius: 8px !important; border: 1px solid #475569 !important; transition: 0.3s !important; }
+button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; transform: scale(1.02); color: #f8fafc !important; border-color: #64748b !important; }
+</style>
+""", unsafe_allow_html=True)
+
+    st.markdown(f"""
+<div class="card">
+<div class="earnings-badge">🔥 Cuenta #{cuenta_n_mes} del mes</div>
+<div class="title_box" style="margin-bottom: 25px;">Área Operativa 🏆</div>
+
+<div class="info-box">
+<div class="label">👤 BOOSTER</div>
+<div class="value">Cuenta asignada a <b>{booster_asignado}</b></div>
+</div>
+
+<div class="info-box">
+<div class="label">🔐 CREDENCIALES DE ACCESO:</div>
+<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 20px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
+</div>
+
+<div class="info-box">
+<div class="label">📝 NOTAS DEL PEDIDO:</div>
+<div class="value" style="color: #e2e8f0; font-size: 16px;">{notas_pedido}</div>
+</div>
+
+<div class="info-box" style="border-left-color: #f59e0b;">
+  <div class="label">⏳ ENTREGA CUENTA</div>
+  <div class="value" style="color: #fbbf24; font-size: 20px;">{dias_restantes} &nbsp;<span style="color:#64748b; font-size: 14px;">(Límite: {fecha_limite_ped_ui})</span></div>
+</div>
+
+<div class="alert-box">
+⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
+<span style="color:#d97706; font-size: 14px; margin-top: 5px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
+</div>
+
+<div style="margin-top: 25px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">
+  PEREZBOOST - NA ©
+</div>
+</div>
+""", unsafe_allow_html=True)
     
     with st.form("form_booster"):
-        st.write("Ingrese el enlace de telemetría del perfil (OP.GG):")
-        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/...")
-        submit = st.form_submit_button("Registrar Enlace", use_container_width=True)
+        st.markdown("<p style='font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 5px;'>🔗 Enlace de Seguimiento de Partidas (OP.GG):</p>", unsafe_allow_html=True)
+        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
+        submit = st.form_submit_button("Registrar OP.GG 🚀", use_container_width=True)
         
         if submit:
             if opgg_input.strip() == "" or not opgg_input.startswith("http"):
@@ -339,7 +440,7 @@ if "t" in query_params:
                         with conn.cursor() as cur:
                             cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
                             conn.commit()
-                        st.success("Registro completado exitosamente. Puede cerrar esta ventana.")
+                        st.success("¡Registro completado exitosamente! Vamos a romperla. 💪")
                     except Exception as e:
                         st.error(f"Excepción en la base de datos: {e}")
                     finally:

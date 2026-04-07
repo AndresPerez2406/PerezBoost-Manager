@@ -120,8 +120,18 @@ def agregar_booster(nombre):
 
 def obtener_boosters_db():
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre FROM boosters") 
+    cursor.execute("SELECT id, nombre, COALESCE(en_ranking, 1) FROM boosters ORDER BY nombre")
     data = cursor.fetchall(); conn.close(); return data
+
+def toggle_ranking_booster(id_booster, nuevo_estado):
+    """Activa (1) o desactiva (0) el ranking de un booster."""
+    conn = conectar(); cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE boosters SET en_ranking = ? WHERE id = ?", (nuevo_estado, id_booster))
+        conn.commit(); return True
+    except Exception as e:
+        print(f"Error toggle ranking: {e}"); return False
+    finally: conn.close()
 
 def eliminar_booster(id_booster):
     conn = conectar(); cursor = conn.cursor()
