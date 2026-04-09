@@ -8,10 +8,6 @@ from datetime import datetime, timedelta
 import customtkinter as ctk
 import pandas as pd
 import threading
-import matplotlib
-matplotlib.use("TkAgg")
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from core.discord_handler import COLOR_DANGER, DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
 from core.cloud_sync import logica_subir_a_nube, logica_bajar_de_nube
 from core.database import (
@@ -26,7 +22,8 @@ from core.database import (
     obtener_pedidos_mes_actual_db, liquidar_pagos_booster_db, obtener_saldos_pendientes_db,
     obtener_balance_general_db, obtener_historial_completo, obtener_profit_diario_db,
     obtener_total_bote_ranking, obtener_ranking_staff_db, obtener_resumen_mensual_db,
-    obtener_resumen_financiero_real, ya_se_ejecuto_hoy, toggle_ranking_booster
+    obtener_resumen_financiero_real, ya_se_ejecuto_hoy, toggle_ranking_booster,
+    obtener_booster_por_id
 )
 
 from core.logic import (
@@ -448,10 +445,12 @@ class PerezBoostApp(ctk.CTk):
 
                 if limite and limite < (hoy + timedelta(hours=24)):
                     notifier = DiscordNotifier(url)
+                    ping = f"<@{p[6]}>" if len(p) > 6 and p[6] else ""
                     notifier.enviar_notificacion(
                         titulo="🚨 RETRASO CRÍTICO",
-                        descripcion=f"El pedido de **{p[1]}** (Staff) vence en menos de 12 horas.",
-                        color=COLOR_DANGER 
+                        descripcion=f"El pedido de **{p[1]}** (Staff) vence en menos de 24 horas. ¡Entrega pronto!",
+                        color=COLOR_DANGER,
+                        content_text=ping
                     )
                     alertas_enviadas += 1
 
@@ -578,10 +577,12 @@ class PerezBoostApp(ctk.CTk):
                 
                 if limite and limite < (hoy + timedelta(hours=24)):
                     notifier = DiscordNotifier(url)
+                    ping = f"<@{p[6]}>" if len(p) > 6 and p[6] else ""
                     notifier.enviar_notificacion(
                         titulo="🚨 REVISIÓN DIARIA DE SEGURIDAD",
                         descripcion=f"**Booster:** {p[1]}\n**Cuenta:** {p[4]}\nQuedan menos de 24h para la entrega.",
-                        color=COLOR_WARNING
+                        color=COLOR_WARNING,
+                        content_text=ping
                     )
             except: continue
 
@@ -1476,7 +1477,7 @@ class PerezBoostApp(ctk.CTk):
         
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
-        for widget in self.graficos_frame.winfo_children(): widget.destroy()
+        # for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
         mes_sel = self.combo_mes.get()
         booster_sel = self.combo_booster_rep.get()
@@ -1491,7 +1492,7 @@ class PerezBoostApp(ctk.CTk):
             except: return 0.0
 
         if not datos:
-            ctk.CTkLabel(self.graficos_frame, text="⚠️ Sin registros finalizados").pack(expand=True)
+            # ctk.CTkLabel(self.graficos_frame, text="⚠️ Sin registros finalizados").pack(expand=True)
             return
 
         contador_visual = 1
@@ -1557,47 +1558,7 @@ class PerezBoostApp(ctk.CTk):
         self.crear_card_mini(self.kpi_frame, "BOTE RECOLECTADO", f"${t_bote:.2f}", "#f1c40f", 2)
         self.crear_card_mini(self.kpi_frame, "VENTAS TOTALES", f"${t_ventas:.2f}", "#9b59b6", 3)
         self.crear_card_mini(self.kpi_frame, "VELOCIDAD MEDIA", f"{prom_dias:.1f} d", "#e67e22", 4)
-        self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
-
-    def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
-        plt.close('all')
-        plt.rcParams.update({
-            'figure.facecolor': '#1a1a1a', 'axes.facecolor': '#1a1a1a',
-            'axes.edgecolor': '#444444', 'axes.labelcolor': 'white',
-            'xtick.color': 'white', 'ytick.color': 'white', 'text.color': 'white'
-        })
-
-        fig, ax = plt.subplots(figsize=(6, 2.8), dpi=100)
-        
-        label_izquierda = "Staff Total" if nombre_filtro == "Todos" else nombre_filtro
-
-        categorias = [label_izquierda, 'Perez (Neto)', 'Bote Ranking']
-        valores = [total_staff, total_perez, total_bote]
-        colores = ['#3498db', '#2ecc71', '#f1c40f']
-
-        barras = ax.bar(categorias, valores, color=colores, width=0.5, zorder=3)
-
-        ax.set_title(f'DISTRIBUCIÓN FINANCIERA: {label_izquierda.upper()}', fontsize=11, fontweight='bold', pad=15)
-        ax.set_ylabel('USD ($)', fontsize=9, fontweight='bold')
-        ax.grid(axis='y', linestyle='--', alpha=0.3, zorder=0)
-
-        for b in barras:
-            height = b.get_height()
-            if height > 0: 
-                ax.annotate(f'${height:,.2f}', 
-                            xy=(b.get_x() + b.get_width()/2, height),
-                            xytext=(0, 5), textcoords="offset points", 
-                            ha='center', va='bottom', weight='bold', fontsize=9, color="white")
-
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        
-        fig.tight_layout()
-        canvas = FigureCanvasTkAgg(fig, master=self.graficos_frame)
-        canvas_widget = canvas.get_tk_widget()
-        canvas_widget.configure(bg='#1a1a1a', highlightthickness=0)
-        canvas_widget.pack(fill="both", expand=True)
-        canvas.draw()
+        # self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
 
     def crear_card_mini(self, master, titulo, valor, color, col):
         card = ctk.CTkFrame(master, fg_color="#1a1a1a", border_width=1, border_color=color)
@@ -2153,22 +2114,55 @@ class PerezBoostApp(ctk.CTk):
     # =========================================================================
 
     def abrir_ventana_booster(self):
-        v = ctk.CTkToplevel(self); v.title("Nuevo Staff"); self.centrar_ventana(v, 400, 300); v.attributes("-topmost", True)
-        entry = ctk.CTkEntry(v, width=250); entry.pack(pady=30)
+        v = ctk.CTkToplevel(self); v.title("Nuevo Staff"); self.centrar_ventana(v, 400, 450); v.attributes("-topmost", True)
+        ctk.CTkLabel(v, text="Nombre del Staff:").pack(pady=(20,0))
+        entry_nom = ctk.CTkEntry(v, width=250); entry_nom.pack(pady=5)
+        
+        ctk.CTkLabel(v, text="Contraseña (Default 1234):").pack(pady=(10,0))
+        entry_pass = ctk.CTkEntry(v, width=250); entry_pass.pack(pady=5)
+        entry_pass.insert(0, "1234")
+        
+        ctk.CTkLabel(v, text="Discord ID (Para Pings):").pack(pady=(10,0))
+        entry_discord = ctk.CTkEntry(v, width=250, placeholder_text="Ej: 123456789012345678"); entry_discord.pack(pady=5)
+        
         def save():
-            if entry.get() and agregar_booster(entry.get().strip().title()):
+            nom = entry_nom.get().strip().title()
+            pw = entry_pass.get().strip() or "1234"
+            ds = entry_discord.get().strip()
+            if nom and agregar_booster(nom, pw, ds):
                 v.destroy(); self.mostrar_boosters()
-        ctk.CTkButton(v, text="Guardar", command=save, fg_color="#2ecc71").pack()
+        ctk.CTkButton(v, text="Guardar", command=save, fg_color="#2ecc71").pack(pady=20)
 
     def abrir_ventana_editar_booster(self):
         sel = self.tabla_boosters.selection()
         if not sel: return
         id_r = self.tabla_boosters.item(sel)['values'][1]
-        v = ctk.CTkToplevel(self); self.centrar_ventana(v, 350, 250); v.attributes("-topmost", True)
-        entry = ctk.CTkEntry(v, width=200); entry.pack(pady=20)
+        data = obtener_booster_por_id(id_r)
+        if not data: return
+        
+        # data = (id, nombre, en_ranking, password, discord_id)
+        v = ctk.CTkToplevel(self); v.title("Editar Staff"); self.centrar_ventana(v, 400, 450); v.attributes("-topmost", True)
+        
+        ctk.CTkLabel(v, text="Nombre del Staff:").pack(pady=(20,0))
+        entry_nom = ctk.CTkEntry(v, width=250); entry_nom.pack(pady=5)
+        entry_nom.insert(0, data[1])
+        
+        ctk.CTkLabel(v, text="Contraseña:").pack(pady=(10,0))
+        entry_pass = ctk.CTkEntry(v, width=250); entry_pass.pack(pady=5)
+        entry_pass.insert(0, data[3])
+        
+        ctk.CTkLabel(v, text="Discord ID:").pack(pady=(10,0))
+        entry_discord = ctk.CTkEntry(v, width=250); entry_discord.pack(pady=5)
+        entry_discord.insert(0, data[4] or "")
+
         def save():
-            actualizar_booster_db(id_r, entry.get().strip().title()); v.destroy(); self.mostrar_boosters()
-        ctk.CTkButton(v, text="Actualizar", fg_color="#27ae60", command=save).pack()
+            nom = entry_nom.get().strip().title()
+            pw = entry_pass.get().strip()
+            ds = entry_discord.get().strip()
+            actualizar_booster_db(id_r, nom, pw, ds)
+            v.destroy(); self.mostrar_boosters()
+            
+        ctk.CTkButton(v, text="Actualizar", fg_color="#27ae60", command=save).pack(pady=20)
 
     def eliminar_booster_seleccionado(self):
         sel = self.tabla_boosters.selection()

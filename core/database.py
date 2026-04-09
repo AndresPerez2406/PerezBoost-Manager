@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
 # SECCIÓN 0: CONFIGURACIÓN Y BACKUP
@@ -66,6 +66,10 @@ def inicializar_db():
     except: pass
     try: cursor.execute('ALTER TABLE boosters ADD COLUMN en_ranking INTEGER DEFAULT 1')
     except: pass
+    try: cursor.execute('ALTER TABLE boosters ADD COLUMN password TEXT DEFAULT "1234"')
+    except: pass
+    try: cursor.execute('ALTER TABLE boosters ADD COLUMN discord_id TEXT DEFAULT ""')
+    except: pass
 
     cursor.execute('CREATE TABLE IF NOT EXISTS logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT, detalles TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS config_precios (division TEXT PRIMARY KEY, precio_cliente REAL, margen_perez REAL, puntos INTEGER DEFAULT 2)')
@@ -110,17 +114,19 @@ def reparar_base_datos_antigua(cursor):
 # SECCIÓN 1: GESTIÓN DE BOOSTERS
 # ==========================================
 
-def agregar_booster(nombre):
+def agregar_booster(nombre, password="1234", discord_id=""):
     conn = conectar(); cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO boosters (nombre) VALUES (?)", (nombre,))
+        cursor.execute("INSERT INTO boosters (nombre, password, discord_id) VALUES (?, ?, ?)", (nombre, password, discord_id))
         conn.commit(); return True
-    except: return False
+    except Exception as e:
+        print(f"Error agregando booster: {e}")
+        return False
     finally: conn.close()
 
 def obtener_boosters_db():
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre, COALESCE(en_ranking, 1) FROM boosters ORDER BY nombre")
+    cursor.execute("SELECT id, nombre, COALESCE(en_ranking, 1), password, discord_id FROM boosters ORDER BY nombre")
     data = cursor.fetchall(); conn.close(); return data
 
 def toggle_ranking_booster(id_booster, nuevo_estado):
@@ -139,10 +145,19 @@ def eliminar_booster(id_booster):
     exito = cursor.rowcount > 0
     conn.commit(); conn.close(); return exito
     
-def actualizar_booster_db(id_booster, nombre_nuevo):
+def obtener_booster_por_id(id_booster):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, en_ranking, password, discord_id FROM boosters WHERE id = ?", (id_booster,))
+    data = cursor.fetchone(); conn.close(); return data
+
+def actualizar_booster_db(id_booster, nombre_nuevo, password_nuevo=None, discord_id_nuevo=None):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("UPDATE boosters SET nombre = ? WHERE id = ?", (nombre_nuevo, id_booster))
+    if password_nuevo is not None and discord_id_nuevo is not None:
+        cursor.execute("UPDATE boosters SET nombre = ?, password = ?, discord_id = ? WHERE id = ?", 
+                       (nombre_nuevo, password_nuevo, discord_id_nuevo, id_booster))
+    else:
+        cursor.execute("UPDATE boosters SET nombre = ? WHERE id = ?", (nombre_nuevo, id_booster))
     conn.commit()
     conn.close()
 
@@ -212,8 +227,14 @@ def crear_pedido(id_booster, nombre_booster, id_cuenta, user_pass, elo, fecha_fi
 def obtener_pedidos_activos():
     conn = conectar()
     cursor = conn.cursor()
-
-    cursor.execute("SELECT id, booster_nombre, elo_inicial, user_pass, fecha_inicio, fecha_limite FROM pedidos WHERE estado = 'En progreso' ORDER BY fecha_limite ASC")
+    # Hacemos JOIN con boosters para traer el ID de discord para notificaciones personalizadas
+    cursor.execute("""
+        SELECT p.id, p.booster_nombre, p.elo_inicial, p.user_pass, p.fecha_inicio, p.fecha_limite, b.discord_id 
+        FROM pedidos p 
+        LEFT JOIN boosters b ON p.booster_nombre = b.nombre
+        WHERE p.estado = 'En progreso' 
+        ORDER BY p.fecha_limite ASC
+    """)
     data = cursor.fetchall()
     conn.close()
     return data

@@ -10,48 +10,47 @@ import decimal
 sqlite3.register_adapter(decimal.Decimal, float)
 
 load_dotenv(".env")
+# Lógica de Modo Desarrollo (Override si es necesario)
 MODO_DESARROLLO = os.getenv("MODO_DESARROLLO") == "True"
-
 if MODO_DESARROLLO:
     load_dotenv(".env.dev", override=True)
-    print("🛠️ MODO DEV: Conectado a la base de datos de PRUEBAS")
-else:
-    print("🚀 MODO PROD: Conectado a la base de datos REAL")
+    print("🛠️ MODO DESARROLLO (DEV): Usando configuraciones de .env.dev")
 
+# La URL maestra ahora respeta tu modo de trabajo
 CLOUD_URL = os.getenv("DATABASE_URL")
-SUPABASE_URL = os.getenv("DATABASE_URL")
-
-AWS_CONF = {
-    "host": os.getenv("AWS_HOST"),
-    "database": os.getenv("AWS_DB", "postgres"),
-    "user": os.getenv("AWS_USER", "postgres"),
-    "password": os.getenv("AWS_PASSWORD"),
-    "port": os.getenv("AWS_PORT", "5432")
-}
-
 DB_LOCAL = "perezboost.db"
 
 # =======================================================
 # 🛠️ MOTOR MAESTRO DE SUBIDA (PUSH)
 # =======================================================
 
-def _motor_subida_postgres(nombre_nube, connection_params):
-    print(f"🚀 Iniciando subida a {nombre_nube}...")
+def _motor_subida_postgres(nombre_target, connection_url):
+    if not connection_url:
+        print(f"⚠️ Error: URL de {nombre_target} no configurada en .env")
+        return False
+        
+    print(f"🚀 Iniciando SUBIDA PROTEGIDA a {nombre_target}...")
     try:
         conn_local = sqlite3.connect(DB_LOCAL)
         cur_local = conn_local.cursor()
-
-        if isinstance(connection_params, str):
-            conn_cloud = psycopg2.connect(connection_params)
-        else:
-            conn_cloud = psycopg2.connect(**connection_params)
+        conn_cloud = psycopg2.connect(connection_url)
         cur_cloud = conn_cloud.cursor()
 
-        cur_cloud.execute("CREATE TABLE IF NOT EXISTS boosters (id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE, binance TEXT, en_ranking INTEGER DEFAULT 1);")
+        # Asegurar Schema
+        cur_cloud.execute("""
+            CREATE TABLE IF NOT EXISTS boosters (
+                id SERIAL PRIMARY KEY, nombre VARCHAR(255) UNIQUE, binance TEXT, 
+                en_ranking INTEGER DEFAULT 1, password TEXT DEFAULT '1234', discord_id TEXT DEFAULT ''
+            );
+        """)
+        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS password TEXT DEFAULT '1234';")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS discord_id TEXT DEFAULT '';")
+        except: pass
+        
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS inventario (id SERIAL PRIMARY KEY, user_pass VARCHAR(255), elo_tipo VARCHAR(50), descripcion TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS config_precios (division VARCHAR(50) PRIMARY KEY, precio_cliente DOUBLE PRECISION, margen_perez DOUBLE PRECISION, puntos INTEGER);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS sistema_config (clave VARCHAR(255) PRIMARY KEY, valor TEXT);")
-        cur_cloud.execute("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, fecha VARCHAR(50), evento VARCHAR(100), detalles TEXT);")
         cur_cloud.execute("CREATE TABLE IF NOT EXISTS wallet_perez (id SERIAL PRIMARY KEY, fecha TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, tipo TEXT NOT NULL, categoria TEXT NOT NULL, monto DECIMAL(10,2) NOT NULL, descripcion TEXT);")
         
         cur_cloud.execute("""
@@ -63,34 +62,16 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION,
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
                 pago_realizado INTEGER DEFAULT 0,
-                opgg TEXT,
-                notas TEXT,
-                bote_pedido DOUBLE PRECISION DEFAULT 0,
-                bote_wr DOUBLE PRECISION DEFAULT 0
+                opgg TEXT, notas TEXT,
+                bote_pedido DOUBLE PRECISION DEFAULT 0, bote_wr DOUBLE PRECISION DEFAULT 0
             );
         """)
 
-        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS notas TEXT DEFAULT 'FRESH';")
-        except: pass
-        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS opgg TEXT DEFAULT '';")
-        except: pass
-        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS binance TEXT DEFAULT '';")
-        except: pass
-        try: cur_cloud.execute("ALTER TABLE boosters ADD COLUMN IF NOT EXISTS en_ranking INTEGER DEFAULT 1;")
-        except: pass
-        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_pedido DOUBLE PRECISION DEFAULT 0;")
-        except: pass
-        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_wr DOUBLE PRECISION DEFAULT 0;")
-        except: pass
-            
-        conn_cloud.commit()
-
         def migrar_tabla(origen, destino):
-
             if origen == "pedidos":
-                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, notas, bote_pedido, bote_wr FROM pedidos")
+                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr FROM pedidos")
             elif origen == "boosters":
-                cur_local.execute("SELECT id, nombre, binance, en_ranking FROM boosters")
+                cur_local.execute("SELECT id, nombre, binance, en_ranking, password, discord_id FROM boosters")
             elif origen == "wallet_perez":
                 cur_local.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM wallet_perez")
             else:
@@ -98,20 +79,8 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                 
             filas = cur_local.fetchall()
             if not filas: return
-
             def limpiar(v): return None if v in ["NULL", "NONE", ""] else v
-
-            filas_L = []
-            for f in filas:
-                fila_lista = list(f)
-                if destino == "pedidos":
-                    wr_val = fila_lista[9]
-                    if isinstance(wr_val, str):
-                        wr_clean = wr_val.replace('%', '').replace('N/A', '').strip()
-                        try: fila_lista[9] = float(wr_clean) if wr_clean else None
-                        except: fila_lista[9] = None
-                
-                filas_L.append(tuple([limpiar(x) for x in fila_lista]))
+            filas_L = [tuple([limpiar(x) for x in list(f)]) for f in filas]
 
             if destino == "pedidos":
                 query = """
@@ -119,15 +88,11 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         id, booster_id, booster_nombre, user_pass, elo_inicial, 
                         fecha_inicio, fecha_limite, estado, elo_final, wr, 
                         fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
-                        ajuste_valor, pago_realizado, notas, bote_pedido, bote_wr
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
-                        booster_id = EXCLUDED.booster_id,
                         booster_nombre = EXCLUDED.booster_nombre,
                         user_pass = EXCLUDED.user_pass,
-                        elo_inicial = EXCLUDED.elo_inicial,
-                        fecha_inicio = EXCLUDED.fecha_inicio,
-                        fecha_limite = EXCLUDED.fecha_limite,
                         estado = EXCLUDED.estado,
                         elo_final = EXCLUDED.elo_final,
                         wr = EXCLUDED.wr,
@@ -135,42 +100,28 @@ def _motor_subida_postgres(nombre_nube, connection_params):
                         pago_cliente = EXCLUDED.pago_cliente,
                         pago_booster = EXCLUDED.pago_booster,
                         ganancia_empresa = EXCLUDED.ganancia_empresa,
-                        ajuste_valor = EXCLUDED.ajuste_valor,
                         pago_realizado = EXCLUDED.pago_realizado,
-                        notas = EXCLUDED.notas,
+                        opgg = COALESCE(NULLIF(EXCLUDED.opgg, ''), pedidos.opgg),
+                        notas = COALESCE(NULLIF(EXCLUDED.notas, ''), pedidos.notas),
                         bote_pedido = EXCLUDED.bote_pedido,
                         bote_wr = EXCLUDED.bote_wr;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "boosters":
                 query = """
-                    INSERT INTO boosters (id, nombre, binance, en_ranking) VALUES (%s, %s, %s, %s)
+                    INSERT INTO boosters (id, nombre, binance, en_ranking, password, discord_id) VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         nombre = EXCLUDED.nombre,
                         binance = EXCLUDED.binance,
-                        en_ranking = EXCLUDED.en_ranking;
+                        en_ranking = EXCLUDED.en_ranking,
+                        password = COALESCE(NULLIF(EXCLUDED.password, ''), boosters.password),
+                        discord_id = COALESCE(NULLIF(EXCLUDED.discord_id, ''), boosters.discord_id);
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "wallet_perez":
-                query = """
-                    INSERT INTO wallet_perez (id, fecha, tipo, categoria, monto, descripcion) 
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        fecha = EXCLUDED.fecha,
-                        tipo = EXCLUDED.tipo,
-                        categoria = EXCLUDED.categoria,
-                        monto = EXCLUDED.monto,
-                        descripcion = EXCLUDED.descripcion;
-                """
-                filas_limpias_wallet = []
-                for f in filas_L:
-                    f_list = list(f)
-                    if f_list[0] is None:
-                        f_list[0] = int(time.time() * 1000) % 2147483647
-                        time.sleep(0.001)
-                    filas_limpias_wallet.append(tuple(f_list))
-                    
-                extras.execute_batch(cur_cloud, query, filas_limpias_wallet)
+                cur_cloud.execute("DELETE FROM wallet_perez;")
+                query = "INSERT INTO wallet_perez (id, fecha, tipo, categoria, monto, descripcion) VALUES (%s, %s, %s, %s, %s, %s)"
+                extras.execute_batch(cur_cloud, query, filas_L)
             else:
                 cur_cloud.execute(f"DELETE FROM {destino};")
                 cols = len(filas_L[0])
@@ -180,86 +131,104 @@ def _motor_subida_postgres(nombre_nube, connection_params):
         migrar_tabla("boosters", "boosters")
         migrar_tabla("inventario", "inventario")
         migrar_tabla("config_precios", "config_precios")
-        migrar_tabla("logs_auditoria", "logs")
         migrar_tabla("pedidos", "pedidos")
         migrar_tabla("sistema_config", "sistema_config")
         migrar_tabla("wallet_perez", "wallet_perez")
 
-        for t in ["pedidos", "boosters", "inventario", "logs", "wallet_perez"]:
+        for t in ["pedidos", "boosters", "inventario", "wallet_perez"]:
             try: cur_cloud.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), COALESCE(MAX(id), 1) ) FROM {t};")
             except: pass
 
         conn_cloud.commit()
         conn_local.close()
         conn_cloud.close()
-        print(f"✅ Subida a {nombre_nube} COMPLETADA.")
+        print(f"✅ Sincronización exitosa con {nombre_target}.")
         return True
-
     except Exception as e:
-        print(f"❌ Error subiendo a {nombre_nube}: {e}")
+        print(f"❌ Error en subida: {e}")
         return False
 
 # =======================================================
-# 🌐 SUBIR (Push Dual)
+# ⬇️ BAJAR (Pull BRIDGE)
 # =======================================================
 
-def logica_subir_a_nube(callback_exito, callback_error):
-    errores = []
-
-    def hilo_aws():
-        if not _motor_subida_postgres("AWS", AWS_CONF): errores.append("AWS falló")
-
-    def hilo_supabase():
-        if SUPABASE_URL:
-            if not _motor_subida_postgres("Supabase", SUPABASE_URL): errores.append("Supabase falló")
-        else:
-            errores.append("Falta URL Supabase")
-
-    t1 = threading.Thread(target=hilo_aws)
-    t2 = threading.Thread(target=hilo_supabase)
-    t1.start(); t2.start()
-    t1.join(); t2.join()
-
-    time.sleep(0.5)
-
-    if not errores:
-        if callback_exito: callback_exito()
-    else:
-        if callback_error: callback_error(f"Errores: {', '.join(errores)}")
-
-# =======================================================
-# ⬇️ BAJAR (Pull Supabase)
-# =======================================================
-
-def logica_bajar_de_nube(callback_exito, callback_error):
+def _get_cloud_columns(cursor, table_name):
     try:
-        if not SUPABASE_URL: raise ValueError("No hay URL de Supabase")
+        cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name.lower()}' AND table_schema = 'public'")
+        cols = [row[0] for row in cursor.fetchall()]
+        if cols: return cols
+        cursor.execute(f"SELECT * FROM {table_name} LIMIT 0")
+        return [desc[0] for desc in cursor.description]
+    except: return []
 
-        conn_cloud = psycopg2.connect(SUPABASE_URL)
+def _motor_bajar_postgres(nombre_target, connection_url):
+    if not connection_url:
+        print(f"⚠️ Error: URL de {nombre_target} no configurada.")
+        return False
+
+    print(f"⬇️ Conectando a {nombre_target}...")
+    try:
+        conn_cloud = psycopg2.connect(connection_url)
         cur_cloud = conn_cloud.cursor()
+        cur_cloud.execute("SELECT current_database()")
+        db_name = cur_cloud.fetchone()[0]
+        print(f"✨ Base de Datos: {db_name}")
+        
         conn_local = sqlite3.connect(DB_LOCAL)
         cur_local = conn_local.cursor()
-        cur_local.execute("PRAGMA foreign_keys = OFF;")
-        cur_local.execute("SELECT clave, valor FROM sistema_config WHERE clave LIKE '%webhook%'")
         
+        cur_local.execute("SELECT clave, valor FROM sistema_config WHERE clave LIKE '%webhook%'")
         respaldos_webhooks = dict(cur_local.fetchall())
         
-        tablas = ["logs_auditoria", "pedidos", "inventario", "boosters", "config_precios", "wallet_perez", "sistema_config"]
+        tablas = ["pedidos", "inventario", "boosters", "config_precios", "wallet_perez", "sistema_config"]
         for t in tablas:
             cur_local.execute(f"DELETE FROM {t}")
 
-        def bajar(tabla_nube, tabla_local):
-            cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
-            filas = cur_cloud.fetchall()
-            if filas:
-                placeholders = ",".join(["?"] * len(filas[0]))
-                cur_local.executemany(f"INSERT INTO {tabla_local} VALUES ({placeholders})", filas)
+        def bajar(tabla_nube, tabla_local, columnas_deseadas=None, defaults=None):
+            if not defaults: defaults = {}
+            columnas_reales = _get_cloud_columns(cur_cloud, tabla_nube)
+            
+            if not columnas_reales:
+                cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
+                filas = cur_cloud.fetchall()
+                if filas:
+                    placeholders = ",".join(["?"] * len(filas[0]))
+                    cur_local.executemany(f"INSERT INTO {tabla_local} VALUES ({placeholders})", filas)
+                return
+
+            if columnas_deseadas:
+                cols_para_select = [c for c in columnas_deseadas if c in columnas_reales]
+                cur_cloud.execute(f"SELECT {','.join(cols_para_select)} FROM {tabla_nube}")
+                filas = cur_cloud.fetchall()
                 
-        bajar("boosters", "boosters")
+                if filas:
+                    filas_listas = []
+                    for f in filas:
+                        idx_cloud = 0
+                        fila_final = []
+                        for col in columnas_deseadas:
+                            if col in columnas_reales:
+                                fila_final.append(f[idx_cloud]); idx_cloud += 1
+                            else:
+                                fila_final.append(defaults.get(col, None))
+                        filas_listas.append(tuple(fila_final))
+                    
+                    placeholders = ",".join(["?"] * len(columnas_deseadas))
+                    cur_local.executemany(f"INSERT INTO {tabla_local} ({','.join(columnas_deseadas)}) VALUES ({placeholders})", filas_listas)
+            else:
+                cur_cloud.execute(f"SELECT * FROM {tabla_nube}")
+                filas = cur_cloud.fetchall()
+                if filas:
+                    placeholders = ",".join(["?"] * len(filas[0]))
+                    cur_local.executemany(f"INSERT INTO {tabla_local} VALUES ({placeholders})", filas)
+                
+        cols_boosters = ["id", "nombre", "binance", "en_ranking", "password", "discord_id"]
+        bajar("boosters", "boosters", cols_boosters, defaults={"password": "1234", "discord_id": ""})
         bajar("inventario", "inventario")
         bajar("config_precios", "config_precios")
-        bajar("logs", "logs_auditoria")
-        bajar("pedidos", "pedidos")
+        
+        cols_pedidos = ["id", "booster_id", "booster_nombre", "user_pass", "elo_inicial", "fecha_inicio", "fecha_limite", "estado", "elo_final", "wr", "fecha_fin_real", "pago_cliente", "pago_booster", "ganancia_empresa", "ajuste_valor", "pago_realizado", "opgg", "notas", "bote_pedido", "bote_wr"]
+        bajar("pedidos", "pedidos", cols_pedidos)
         bajar("wallet_perez", "wallet_perez")
         bajar("sistema_config", "sistema_config")
         
@@ -269,12 +238,24 @@ def logica_bajar_de_nube(callback_exito, callback_error):
         conn_local.commit()
         conn_local.close()
         conn_cloud.close()
-
-        print("⏳ Sincronización de entrada completada. Binance y OP.GG actualizados.")
-        time.sleep(1.0)
-
-        if callback_exito: callback_exito()
-
+        print(f"✅ Sincronización desde nube COMPLETADA.")
+        return True
     except Exception as e:
-        print(f"Error bajando: {e}")
-        if callback_error: callback_error(str(e))
+        print(f"❌ Error en descarga: {e}")
+        return False
+
+# =======================================================
+# 🌐 WRAPPERS COMPATIBILIDAD (EL ÚNICO DESTINO)
+# =======================================================
+
+def logica_bajar_de_nube(cb_ok, cb_err):
+    """Baja datos de DONDE SEA que apunte el .env"""
+    if _motor_bajar_postgres("NUBE", CLOUD_URL):
+        if cb_ok: cb_ok()
+    elif cb_err: cb_err("Fallo en descarga")
+
+def logica_subir_a_nube(cb_ok, cb_err):
+    """Sube datos a DONDE SEA que apunte el .env"""
+    if _motor_subida_postgres("NUBE", CLOUD_URL):
+        if cb_ok: cb_ok()
+    elif cb_err: cb_err("Fallo en subida")

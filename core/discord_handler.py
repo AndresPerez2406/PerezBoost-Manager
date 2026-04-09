@@ -22,7 +22,7 @@ class DiscordNotifier:
         except Exception as e:
             print(f"Error enviando a Discord: {e}")
 
-    def enviar_notificacion(self, titulo, descripcion, color=COLOR_INFO, campos=None):
+    def enviar_notificacion(self, titulo, descripcion, color=COLOR_INFO, campos=None, content_text=None):
         if not self.webhook_url or self.webhook_url.strip() == "":
             return
 
@@ -38,7 +38,6 @@ class DiscordNotifier:
         }
 
         if campos:
-
             for campo in campos:
                 campo['value'] = str(campo.get('value', ''))
                 campo['name'] = str(campo.get('name', ''))
@@ -49,6 +48,9 @@ class DiscordNotifier:
             "avatar_url": "https://cdn-icons-png.flaticon.com/512/6126/6126343.png",
             "embeds": [embed]
         }
+        
+        if content_text:
+            payload["content"] = str(content_text)
 
         hilo = threading.Thread(target=self._enviar_async, args=(payload,))
         hilo.daemon = True
