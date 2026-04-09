@@ -52,29 +52,31 @@ MES_ACTUAL_NUM = HOY.month
 ANIO_ACTUAL = HOY.year
 MES_ACTUAL_ISO = HOY.strftime("%Y-%m")
 NOMBRE_MES_ACTUAL = MESES_DICT[MES_ACTUAL_NUM].upper()
-st.markdown("""
-
+st.markdown(f"""
 <style>
-    .stApp { background-color: #0e1117; color: white; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    button[title="View source"] {display: none;}
-    .viewerBadge_container__1QS1n {display: none;}
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #2ecc71; font-weight: bold; }
-    [data-testid="stTable"] th, [data-testid="stTable"] td {
+    .stApp {{ background-color: #0e1117; color: white; }}
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    button[title="View source"] {{display: none;}}
+    .viewerBadge_container__1QS1n {{display: none;}}
+    div[data-testid="stMetricValue"] {{ font-size: 24px; color: #2ecc71; font-weight: bold; }}
+    [data-testid="stTable"] th, [data-testid="stTable"] td {{
         text-align: center !important;
         vertical-align: middle !important;
-    }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
+    }}
+    .stTabs [data-baseweb="tab-list"] {{ gap: 8px; }}
+    .stTabs [data-baseweb="tab"] {{
         background-color: #161b22;
         border-radius: 5px 5px 0px 0px;
         padding: 10px 15px;
         color: white;
         font-weight: bold;
-    }
-    .stTabs [aria-selected="true"] { background-color: #2ecc71 !important; color: black !important; }
+    }}
+    .stTabs [aria-selected="true"] {{ background-color: #2ecc71 !important; color: black !important; }}
+    
+    /* 🛡️ Lockdown de UI para no-autenticados */
+    {'[data-testid="stSidebar"], [data-testid="collapsedControl"] { display: none !important; }' if not st.session_state.get("authenticated") else ''}
 </style>
 """, unsafe_allow_html=True)
 
@@ -100,7 +102,6 @@ else:
 
 # ==============================================================================
 # 🛠️ FUNCIONES FORMATEADORAS (UTILIDADES)
-
 # ==============================================================================
 
 def clean_num(val):
@@ -132,380 +133,7 @@ def run_query(query):
     return pd.DataFrame()
 
 # ==============================================================================
-# 🔐 GESTIÓN DE AUTENTICACIÓN GLOBAL
-# ==============================================================================
-
-cookie_manager = stx.CookieManager(key="perez_auth_manager")
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = None
-if 'user_name' not in st.session_state:
-    st.session_state.user_name = None
-if 'logout_in_progress' not in st.session_state:
-    st.session_state.logout_in_progress = False
-if 'login_successful' not in st.session_state:
-    st.session_state.login_successful = False
-
-# 🚦 DETECCIÓN DE PORTAL Y PARÁMETROS
-v_param = st.query_params.get("v", "")
-k_param = st.query_params.get("k", "")
-b_param = st.query_params.get("b", "")
-p_param = st.query_params.get("p", "")
-is_staff_portal = (v_param == "staff")
-is_token_view = ("t" in st.query_params)
-is_ranking_view = (st.query_params.get("view", "") == "ranking")
-# El portal de Admin solo se activa si no es staff y no es una zona neutral (token/ranking)
-is_admin_portal = (not is_staff_portal and not is_token_view and not is_ranking_view)
-# 1. Recuperar sesión (Memory Latching + URL Token + Cookie fallback)
-if not st.session_state.authenticated:
-    # A. Recuperación por URL (Instantánea al refrescar F5)
-    s_param = st.query_params.get("s", "")
-    if s_param:
-        r_role, r_name = decode_session_token(s_param)
-        if r_role and r_name:
-            st.session_state.authenticated = True
-            st.session_state.user_role = r_role
-            st.session_state.user_name = r_name
-
-    # B. Sincronización Silenciosa de Cookies (Fallback si no hay URL token)
-    if not st.session_state.authenticated:
-        if 'auth_pulses' not in st.session_state:
-            st.session_state.auth_pulses = 0
-        
-        cookies = cookie_manager.get_all()
-        auth_cookie = cookies.get("perez_login_token")
-        
-        if not auth_cookie and st.session_state.auth_pulses < 3:
-            st.session_state.auth_pulses += 1
-            st.rerun() 
-
-        if st.session_state.login_successful:
-            st.session_state.authenticated = True
-            st.session_state.login_successful = False
-        
-        elif auth_cookie:
-            try:
-                c_role, c_name = auth_cookie.split("|")
-                st.session_state.authenticated = True
-                st.session_state.user_role = c_role
-                st.session_state.user_name = c_name
-                # Al recuperar de cookie, inyectamos el token en URL para futuros refrescos
-                st.query_params.s = get_session_token(c_role, c_name)
-            except: pass
-    
-    # 2. Protección de Portal y Auto-Redirección
-    if st.session_state.authenticated:
-        # Si el rol no coincide con el portal actual, intentamos redirigir en lugar de desloguear
-        if is_staff_portal and st.session_state.user_role == "admin":
-            # Admin entrando a Staff -> Redirigir a Admin
-            st.query_params.clear()
-            st.rerun()
-        elif is_admin_portal and st.session_state.user_role == "booster":
-            # Booster entrando a Admin -> Redirigir a Staff
-            st.query_params.v = "staff"
-            st.rerun()
-    # Prioridad C: Auto-Login via URL
-    if not st.session_state.authenticated:
-        if k_param:
-            try: clave_admin = st.secrets["ADMIN_PASSWORD"]
-            except: clave_admin = os.getenv("ADMIN_PASSWORD")
-            if k_param == clave_admin:
-                st.session_state.authenticated = True
-                st.session_state.user_role = "admin"
-                st.session_state.user_name = "Administrador"
-                st.session_state.login_successful = True
-                cookie_manager.set("perez_login_token", "admin|Administrador", expires_at=(datetime.now() + timedelta(days=3)))
-                st.query_params.clear()
-                st.query_params.s = get_session_token("admin", "Admin") # Token en URL
-                st.rerun()
-        elif is_staff_portal and b_param and p_param:
-            q_b = f"SELECT nombre FROM boosters WHERE nombre ILIKE '{b_param.strip()}' AND password = '{p_param}'"
-            df_b = run_query(q_b)
-            if not df_b.empty:
-                st.session_state.authenticated = True
-                st.session_state.user_role = "booster"
-                u_name_b = df_b.iloc[0]['nombre']
-                st.session_state.user_name = u_name_b
-                st.session_state.login_successful = True
-                cookie_manager.set("perez_login_token", f"booster|{u_name_b}", expires_at=(datetime.now() + timedelta(days=3)))
-                st.query_params.clear(); st.query_params.v = "staff"
-                st.query_params.s = get_session_token("booster", u_name_b) # Token en URL
-                st.rerun()
-# 2. Sincronización de Logout
-if st.session_state.logout_in_progress:
-    st.session_state.logout_in_progress = False
-
-def perform_logout():
-    # Detectar si estamos en el portal de staff antes de borrar todo
-    redirect_staff = "v" in st.query_params and st.query_params["v"] == "staff"
-    try:
-        exp_p = datetime.now() - timedelta(days=10)
-        cookie_manager.set("perez_login_token", "", expires_at=exp_p)
-        cookie_manager.delete("perez_login_token")
-    except: pass
-    st.session_state.logout_in_progress = True
-    st.session_state.authenticated = False
-    st.session_state.user_role = None
-    st.session_state.user_name = None
-    st.cache_data.clear()
-    st.query_params.clear() 
-    if redirect_staff:
-        st.query_params.v = "staff"
-    st.rerun()
-login_placeholder = st.empty()
-
-# ==============================================================================
-# 🚀 ENRUTADOR DE VISTAS PÚBLICAS (TOKEN Y RANKING)
-
-# ==============================================================================
-try:
-    if "view" in st.query_params and st.query_params["view"] == "ranking":
-        render_public_ranking()
-        st.stop()
-except: pass
-if "t" in st.query_params:
-    token_recibido = st.query_params["t"]
-    try:
-        token_decodificado = base64.urlsafe_b64decode(token_recibido.encode('utf-8')).decode('utf-8')
-        id_pedido = token_decodificado.split("-")[1]
-    except Exception:
-        st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
-        st.stop()
-    df_info = run_query(f"SELECT booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, notas FROM pedidos WHERE id = {id_pedido}")
-    if df_info.empty:
-        st.error("Error: El pedido solicitado no existe en la base de datos.")
-        st.stop()
-    booster_asignado = df_info.iloc[0]['booster_nombre']
-    user_pass_asignado = df_info.iloc[0]['user_pass']
-    elo_llevar = df_info.iloc[0]['elo_inicial']
-    fecha_inicio_str = df_info.iloc[0]['fecha_inicio']
-    fecha_limite_ped = str(df_info.iloc[0]['fecha_limite']).split(" ")[0] if pd.notna(df_info.iloc[0]['fecha_limite']) else ""
-    notas_pedido = df_info.iloc[0].get('notas', '')
-    if pd.isna(notas_pedido) or str(notas_pedido).strip() == "": notas_pedido = "Ninguna"
-    else: notas_pedido = str(notas_pedido).strip()
-    dias_restantes_opgg = "N/A"
-    try:
-        if pd.notna(fecha_inicio_str) and str(fecha_inicio_str).strip() != "":
-            fecha_inicio = pd.to_datetime(fecha_inicio_str)
-            fecha_limite_opgg = fecha_inicio + timedelta(days=5)
-            fecha_limite_str = fecha_limite_opgg.strftime("%d/%m/%y")
-            d_res_o = max(0, (fecha_limite_opgg - datetime.now()).days)
-            dias_restantes_opgg = "¡Hoy!" if d_res_o == 0 else f"{d_res_o} días"
-        else: fecha_limite_str = "No definida"
-    except: fecha_limite_str = "No definida"
-    
-    # --- Contador de cuentas eliminado por solicitud ---
-    
-    dias_restantes = "N/A"; fecha_limite_ped_ui = "No asignada"
-    try:
-        if fecha_limite_ped != "":
-            f_ped = pd.to_datetime(fecha_limite_ped)
-            fecha_limite_ped_ui = f_ped.strftime("%d/%m/%y")
-            d_res = max(0, (f_ped - datetime.now()).days)
-            dias_restantes = "¡Hoy!" if d_res == 0 else f"{d_res} días restantes"
-    except: pass
-    st.markdown("""
-<style>
-.card { background: linear-gradient(145deg, #0d0d12, #121218); border-radius: 15px; padding: 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); border: 1px solid #1f1f2e; text-align: center; margin-bottom: 25px; transition: transform 0.3s, border-color 0.3s; }
-.card:hover { border-color: #4a4a6a; transform: translateY(-5px); }
-.title_box { color: #e2e8f0; font-size: 32px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 2px 5px rgba(0,0,0,0.5);}
-.subtitle { color: #64748b; font-size: 17px; margin-bottom: 25px; letter-spacing: 2px; font-weight: bold; text-transform: uppercase;}
-.info-box { background-color: #12121a; border-radius: 12px; padding: 18px 20px; margin: 12px 0; display: flex; flex-direction: column; border: 1px solid #1f1f2e; border-left: 5px solid #475569; text-align: left;}
-.info-box .label { color: #64748b; font-size: 13px; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
-.info-box .value { color: #f8fafc; font-size: 20px; font-weight: 700; margin-top: 5px; }
-.alert-box { background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 15px; color: #fbbf24; font-weight: 800; margin: 25px 0 10px 0; }
-.earnings-badge { background: #1e293b; color: #94a3b8; padding: 10px 20px; border-radius: 30px; font-size: 16px; font-weight: 900; display: inline-block; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; border: 1px solid #334155; }
-div[data-testid="stForm"] { background: #0d0d12; border: 1px solid #1f1f2e; border-radius: 12px; padding: 25px; }
-button[kind="primaryFormSubmit"] { background-color: #1e293b !important; color: #cbd5e1 !important; font-weight: 900 !important; font-size: 18px !important; text-transform: uppercase !important; letter-spacing: 1px !important; border-radius: 8px !important; border: 1px solid #475569 !important; transition: 0.3s !important; }
-button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; transform: scale(1.02); color: #f8fafc !important; border-color: #64748b !important; }
-</style>
-""", unsafe_allow_html=True)
-    # Boton de volver eliminado (Uso de nueva pestaña)
-    st.markdown(f"""
-<div class="card">
-<div class="title_box" style="margin-bottom: 25px; margin-top: 15px;">Área Operativa 🏆</div>
-<div class="info-box">
-<div class="label">👤 BOOSTER</div>
-<div class="value">Cuenta asignada a <b>{booster_asignado}</b></div>
-</div>
-<div class="info-box">
-<div class="label">🔑 CREDENCIALES DE ACCESO:</div>
-<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 20px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
-</div>
-<div class="info-box">
-<div class="label">📝 NOTAS DEL PEDIDO:</div>
-<div class="value" style="color: #e2e8f0; font-size: 16px;">{notas_pedido}</div>
-</div>
-<div class="info-box" style="border-left-color: #f59e0b;">
-  <div class="label">⏳ ENTREGA CUENTA</div>
-  <div class="value" style="color: #fbbf24; font-size: 20px;">{dias_restantes} &nbsp;<span style="color:#64748b; font-size: 14px;">(Límite: {fecha_limite_ped_ui})</span></div>
-</div>
-<div class="alert-box">
-⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
-<span style="color:#d97706; font-size: 14px; margin-top: 5px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
-</div>
-<div style="margin-top: 25px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
-</div>
-""", unsafe_allow_html=True)
-    with st.form("form_booster"):
-        st.markdown("<p style='font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 5px;'>🔗 Enlace de Seguimiento de Partidas (OP.GG):</p>", unsafe_allow_html=True)
-        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
-        if st.form_submit_button("Registrar OP.GG 🚀"):
-            if opgg_input.strip() == "" or not opgg_input.startswith("http"):
-                st.error("Validación fallida: Registra una URL válida.")
-            else:
-                conn = get_connection()
-                if conn:
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
-                            conn.commit()
-                        st.success("¡Registro completado exitosamente! 💪")
-                    except Exception as e: st.error(f"Error: {e}")
-                    finally: conn.close()
-    st.stop()
-
-if not st.session_state.authenticated:
-    with login_placeholder.container():
-        c1, c2, c3 = st.columns([1, 1.5, 1])
-        with c2:
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            if is_staff_portal:
-                st.markdown("""
-                    <div style='text-align: center;'>
-                        <h2 style='color: #58a6ff; margin-bottom: 5px;'>👨‍💻 Portal de Staff</h2>
-                        <p style='color: #8b949e; font-size: 14px;'>Identifícate para ver tus pedidos</p>
-                    </div>
-                """, unsafe_allow_html=True)
-                with st.form("staff_login_form"):
-                    u_name = st.text_input("Nombre de Staff:", placeholder="Ej: Perez")
-                    u_pass = st.text_input("Contraseña:", type="password")
-                    mantener = st.checkbox("Recordarme", value=True)
-                    submit = st.form_submit_button("Entrar al Panel 🚀")
-                    if submit:
-                        u_name_clean = u_name.strip()
-                        q_booster = f"SELECT nombre FROM boosters WHERE nombre ILIKE '{u_name_clean}' AND password = '{u_pass}'"
-                        df_check = run_query(q_booster)
-                        if not df_check.empty:
-                            st.session_state.authenticated = True
-                            st.session_state.user_role = "booster"
-                            u_name_found = df_check.iloc[0]['nombre']
-                            st.session_state.user_name = u_name_found
-                            st.session_state.login_successful = True
-                            if mantener:
-                                expira = datetime.now() + timedelta(days=3)
-                                cookie_manager.set("perez_login_token", f"booster|{u_name_found}", expires_at=expira)
-                            
-                            st.query_params.s = get_session_token("booster", u_name_found) # Token para F5
-                            st.rerun()
-                        else:
-                            st.error("❌ Credenciales incorrectas.")
-            else:
-                st.markdown("""
-                    <div style='text-align: center;'>
-                        <h2 style='color: #2ecc71; margin-bottom: 5px;'>🔐 Acceso Administrativo</h2>
-                        <p style='color: #8b949e; font-size: 14px;'>Introduce la clave de seguridad</p>
-                    </div>
-                """, unsafe_allow_html=True)
-                with st.form("admin_login_form"):
-                    u_pass = st.text_input("Credencial de Acceso:", type="password")
-                    mantener = st.checkbox("No cerrar sesión", value=True)
-                    submit = st.form_submit_button("Ingresar")
-                    if submit:
-                        try: clave_admin = st.secrets["ADMIN_PASSWORD"]
-                        except: clave_admin = os.getenv("ADMIN_PASSWORD")
-                        if u_pass == clave_admin:
-                            st.session_state.authenticated = True
-                            st.session_state.user_role = "admin"
-                            st.session_state.user_name = "Administrador"
-                            st.session_state.login_successful = True
-                            if mantener:
-                                expira = datetime.now() + timedelta(days=3)
-                                cookie_manager.set("perez_login_token", "admin|Administrador", expires_at=expira)
-                            
-                            st.query_params.s = get_session_token("admin", "Admin") # Token para F5
-                            st.rerun()
-                        else:
-                            st.error("❌ Clave incorrecta.")
-    st.stop()
-
-# ==============================================================================
-# 🎮 MOTOR DE AUDITORÍA Y ALERTAS
-# ==============================================================================
-
-def ejecutar_auditoria_alertas():
-    # Obtener Webhook de alertas
-    url_alertas = run_query("SELECT valor FROM sistema_config WHERE clave = 'discord_webhook_alertas'")
-    if url_alertas.empty or not url_alertas.iloc[0,0]:
-        st.error("Configuración de Discord no encontrada.")
-        return 0
-    webhook_url = url_alertas.iloc[0,0]
-    query_24h = """
-        SELECT id, booster_nombre, user_pass, fecha_limite, 
-               (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
-        FROM pedidos 
-        WHERE estado = 'En progreso' 
-        AND fecha_limite IS NOT NULL AND fecha_limite != ''
-    """
-    df_alert = run_query(query_24h)
-    alertas_enviadas = 0
-    if not df_alert.empty:
-        from core.discord_handler import DiscordNotifier, COLOR_DANGER, COLOR_WARNING
-        notifier = DiscordNotifier(webhook_url)
-        for _, row in df_alert.iterrows():
-            try:
-                f_limite = pd.to_datetime(row['fecha_limite'])
-                diferencia = f_limite - datetime.now()
-                # Alerta Urgente: Menos de 24 horas
-                if 0 < diferencia.total_seconds() < 86400:
-                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
-                    notifier.enviar_notificacion(
-                        titulo="⚠️ PEDIDO POR VENCER (24H)",
-                        descripcion=f"El pedido #{row['id']} para **{row['user_pass']}** está a menos de 24 horas de su límite.",
-                        color=COLOR_DANGER,
-                        content_text=f"¡Atención {mention}! Revisa tus tiempos de entrega.",
-                        campos=[
-                            {"name": "Booster", "value": row['booster_nombre'], "inline": True},
-                            {"name": "Límite", "value": row['fecha_limite'], "inline": True}
-                        ]
-                    )
-                    alertas_enviadas += 1
-            except: continue
-    # 2. Buscar pedidos sin OP.GG (> 2 días de iniciado)
-    query_opgg = """
-        SELECT id, booster_nombre, user_pass, fecha_inicio,
-               (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
-        FROM pedidos 
-        WHERE estado = 'En progreso' 
-        AND (opgg IS NULL OR opgg = '')
-    """
-    df_opgg = run_query(query_opgg)
-    if not df_opgg.empty:
-        from core.discord_handler import DiscordNotifier, COLOR_WARNING
-        notifier = DiscordNotifier(webhook_url)
-        for _, row in df_opgg.iterrows():
-            try:
-                f_inicio = pd.to_datetime(row['fecha_inicio'])
-                dias_transcurridos = (datetime.now() - f_inicio).days
-                if dias_transcurridos >= 2:
-                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
-                    notifier.enviar_notificacion(
-                        titulo="🔗 FALTA LINK OPGG",
-                        descripcion=f"El pedido #{row['id']} lleva {dias_transcurridos} días sin link de seguimiento registrado.",
-                        color=COLOR_WARNING,
-                        content_text=f"Recuerda registrar el OP.GG {mention}.",
-                        campos=[
-                            {"name": "Booster", "value": row['booster_nombre'], "inline": True},
-                            {"name": "Cuenta", "value": row['user_pass'], "inline": True}
-                        ]
-                    )
-                    alertas_enviadas += 1
-            except: continue
-    return alertas_enviadas
-
-# ==============================================================================
-# 🎮 MODO QUIOSCO
+# 🚀 RENDERIZADORES Y FUNCIONES DE VISTA
 # ==============================================================================
 
 def render_public_ranking():
@@ -560,7 +188,7 @@ def render_public_ranking():
         (SELECT puntos FROM config_precios WHERE UPPER(TRIM(division)) = UPPER(TRIM(p.elo_final)) LIMIT 1) as puntos_tarifa
         FROM pedidos p
         WHERE p.fecha_fin_real LIKE '{MES_ACTUAL_ISO}%'
-        AND COALESCE((SELECT en_ranking FROM boosters WHERE nombre = p.booster_nombre LIMIT 1), 1) = 1
+        AND COALESCE((SELECT en_ranking FROM boosters WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(p.booster_nombre)) LIMIT 1), 1) = 1
     """
     df_raw = run_query(query_publica)
     if not df_raw.empty:
@@ -648,7 +276,7 @@ def render_public_ranking():
             if len(df_rank) > 2:
                 with c3: st.markdown(f'<div class="rank-card rank-3"><div class="rank-icon">🥉</div><p class="rank-label">RANGO 3</p><p class="rank-name">{df_rank.iloc[2]["booster_nombre"]}</p><p class="rank-pts">{df_rank.iloc[2]["puntaje"]} PTS</p></div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        tabla_html = "<table class='esports-table'><thead><tr><th>NÂ°</th><th style='text-align:left'>Staff</th><th>✅ Term.</th><th>ðŸ”¥ Bonos WR</th><th>âŒ Aban.</th><th>â­ Pts</th></tr></thead><tbody>"
+        tabla_html = "<table class='esports-table'><thead><tr><th>N°</th><th style='text-align:left'>Staff</th><th>✅ Term.</th><th>🔥 Bonos WR</th><th>❌ Aban.</th><th>⭐ Pts</th></tr></thead><tbody>"
         for index, row in df_rank.iterrows():
             tabla_html += f"<tr><td>{index+1}°</td><td class='col-staff'>{row['booster_nombre']}</td><td>{row['terminados']}</td><td>{row['high_wr']}</td><td style='color:#e74c3c'>{row['abandonos']}</td><td style='color:#2ecc71; font-weight:bold;'>{row['puntaje']} pts</td></tr>"
         tabla_html += "</tbody></table>"
@@ -778,13 +406,393 @@ def render_booster_dashboard(booster_name):
                             st.error(f"Error al actualizar: {e}")
                         finally:
                             conn.close()
-# --- FIN BLOQUE BOOSTER ---
 
 # ==============================================================================
-# 3. AUTENTICACIÓN
+# 🔐 GESTIÓN DE AUTENTICACIÓN GLOBAL
 # ==============================================================================
 
-# --- BLOQUE DE AUTENTICACIÓN MOVIDO AL INICIO ---
+cookie_manager = stx.CookieManager(key="perez_auth_manager")
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_role' not in st.session_state:
+    st.session_state.user_role = None
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = None
+if 'logout_in_progress' not in st.session_state:
+    st.session_state.logout_in_progress = False
+if 'login_successful' not in st.session_state:
+    st.session_state.login_successful = False
+
+# 🚦 DETECCIÓN DE PORTAL Y PARÁMETROS
+v_param = st.query_params.get("v", "")
+k_param = st.query_params.get("k", "")
+b_param = st.query_params.get("b", "")
+p_param = st.query_params.get("p", "")
+is_staff_portal = (v_param == "staff")
+is_token_view = ("t" in st.query_params)
+is_ranking_view = (st.query_params.get("view", "") == "ranking")
+# El portal de Admin solo se activa si no es staff y no es una zona neutral (token/ranking)
+is_admin_portal = (not is_staff_portal and not is_token_view and not is_ranking_view)
+# 1. Recuperar sesión (Memory Latching + URL Token + Cookie fallback)
+if not st.session_state.authenticated:
+    # A. Recuperación por URL (Instantánea al refrescar F5)
+    s_param = st.query_params.get("s", "")
+    if s_param:
+        r_role, r_name = decode_session_token(s_param)
+        if r_role and r_name:
+            st.session_state.authenticated = True
+            st.session_state.user_role = r_role
+            st.session_state.user_name = r_name
+
+    # B. Sincronización Silenciosa de Cookies (Fallback si no hay URL token)
+    if not st.session_state.authenticated:
+        if 'auth_pulses' not in st.session_state:
+            st.session_state.auth_pulses = 0
+        
+        cookies = cookie_manager.get_all()
+        auth_cookie = cookies.get("perez_login_token")
+        
+        if not auth_cookie and st.session_state.auth_pulses < 3:
+            st.session_state.auth_pulses += 1
+            st.rerun() 
+
+        if st.session_state.login_successful:
+            st.session_state.authenticated = True
+            st.session_state.login_successful = False
+        
+        elif auth_cookie:
+            try:
+                if "|" in auth_cookie:
+                    c_role, c_name = auth_cookie.split("|")
+                    if c_role and c_name and c_name != "None":
+                        st.session_state.authenticated = True
+                        st.session_state.user_role = c_role
+                        st.session_state.user_name = c_name
+                        st.query_params.s = get_session_token(c_role, c_name)
+            except: pass
+    
+    # 2. Protección de Portal y Auto-Redirección
+    if st.session_state.authenticated:
+        # Si el rol no coincide con el portal actual, intentamos redirigir en lugar de desloguear
+        if is_staff_portal and st.session_state.user_role == "admin":
+            # Admin entrando a Staff -> Redirigir a Admin
+            st.query_params.clear()
+            st.rerun()
+        elif is_admin_portal and st.session_state.user_role == "booster":
+            # Booster entrando a Admin -> Redirigir a Staff
+            st.query_params.v = "staff"
+            st.rerun()
+    # Prioridad C: Auto-Login via URL
+    if not st.session_state.authenticated:
+        if k_param:
+            try: clave_admin = st.secrets["ADMIN_PASSWORD"]
+            except: clave_admin = os.getenv("ADMIN_PASSWORD")
+            if k_param == clave_admin:
+                st.session_state.authenticated = True
+                st.session_state.user_role = "admin"
+                st.session_state.user_name = "Administrador"
+                st.session_state.login_successful = True
+                cookie_manager.set("perez_login_token", "admin|Administrador", expires_at=(datetime.now() + timedelta(days=3)))
+                st.query_params.clear()
+                st.query_params.s = get_session_token("admin", "Admin") # Token en URL
+                st.rerun()
+        elif is_staff_portal and b_param and p_param:
+            q_b = f"SELECT nombre FROM boosters WHERE nombre ILIKE '{b_param.strip()}' AND password = '{p_param}'"
+            df_b = run_query(q_b)
+            if not df_b.empty:
+                st.session_state.authenticated = True
+                st.session_state.user_role = "booster"
+                u_name_b = df_b.iloc[0]['nombre']
+                st.session_state.user_name = u_name_b
+                st.session_state.login_successful = True
+                cookie_manager.set("perez_login_token", f"booster|{u_name_b}", expires_at=(datetime.now() + timedelta(days=3)))
+                st.query_params.clear(); st.query_params.v = "staff"
+                st.query_params.s = get_session_token("booster", u_name_b) # Token en URL
+                st.rerun()
+# 2. Sincronización de Logout
+if st.session_state.logout_in_progress:
+    st.session_state.logout_in_progress = False
+
+def perform_logout():
+    # Detectar el portal de origen antes de limpiar todo
+    is_staff = (st.session_state.get("user_role") == "booster") or ("v" in st.query_params and st.query_params["v"] == "staff")
+    
+    # 1. Limpieza total y absoluta del estado de sesión
+    st.session_state.clear()
+    
+    # 2. Forzar borrado de cookies
+    try:
+        exp_p = datetime.now() - timedelta(days=10)
+        cookie_manager.set("perez_login_token", "", expires_at=exp_p)
+        cookie_manager.delete("perez_login_token")
+    except: pass
+    
+    # 3. Determinar destino (Booster -> ?v=staff, Admin -> /)
+    target_url = "/?v=staff" if is_staff else "/"
+    
+    # 4. Redirección Forzada via Meta-Refresh (Hard Reset del navegador)
+    st.markdown(f'<meta http-equiv="refresh" content="0; url={target_url}">', unsafe_allow_html=True)
+    st.stop()
+login_placeholder = st.empty()
+
+# Enrutamiento se movió abajo de las funciones
+if "t" in st.query_params:
+    token_recibido = st.query_params["t"]
+    try:
+        token_decodificado = base64.urlsafe_b64decode(token_recibido.encode('utf-8')).decode('utf-8')
+        id_pedido = token_decodificado.split("-")[1]
+    except Exception:
+        st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
+        st.stop()
+    df_info = run_query(f"SELECT booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, notas FROM pedidos WHERE id = {id_pedido}")
+    if df_info.empty:
+        st.error("Error: El pedido solicitado no existe en la base de datos.")
+        st.stop()
+    booster_asignado = df_info.iloc[0]['booster_nombre']
+    user_pass_asignado = df_info.iloc[0]['user_pass']
+    elo_llevar = df_info.iloc[0]['elo_inicial']
+    fecha_inicio_str = df_info.iloc[0]['fecha_inicio']
+    fecha_limite_ped = str(df_info.iloc[0]['fecha_limite']).split(" ")[0] if pd.notna(df_info.iloc[0]['fecha_limite']) else ""
+    notas_pedido = df_info.iloc[0].get('notas', '')
+    if pd.isna(notas_pedido) or str(notas_pedido).strip() == "": notas_pedido = "Ninguna"
+    else: notas_pedido = str(notas_pedido).strip()
+    dias_restantes_opgg = "N/A"
+    try:
+        if pd.notna(fecha_inicio_str) and str(fecha_inicio_str).strip() != "":
+            fecha_inicio = pd.to_datetime(fecha_inicio_str)
+            fecha_limite_opgg = fecha_inicio + timedelta(days=5)
+            fecha_limite_str = fecha_limite_opgg.strftime("%d/%m/%y")
+            d_res_o = max(0, (fecha_limite_opgg - datetime.now()).days)
+            dias_restantes_opgg = "¡Hoy!" if d_res_o == 0 else f"{d_res_o} días"
+        else: fecha_limite_str = "No definida"
+    except: fecha_limite_str = "No definida"
+    
+    # --- Contador de cuentas eliminado por solicitud ---
+    
+    dias_restantes = "N/A"; fecha_limite_ped_ui = "No asignada"
+    try:
+        if fecha_limite_ped != "":
+            f_ped = pd.to_datetime(fecha_limite_ped)
+            fecha_limite_ped_ui = f_ped.strftime("%d/%m/%y")
+            d_res = max(0, (f_ped - datetime.now()).days)
+            dias_restantes = "¡Hoy!" if d_res == 0 else f"{d_res} días restantes"
+    except: pass
+    st.markdown("""
+<style>
+.card { background: linear-gradient(145deg, #0d0d12, #121218); border-radius: 15px; padding: 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); border: 1px solid #1f1f2e; text-align: center; margin-bottom: 25px; transition: transform 0.3s, border-color 0.3s; }
+.card:hover { border-color: #4a4a6a; transform: translateY(-5px); }
+.title_box { color: #e2e8f0; font-size: 32px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 2px 5px rgba(0,0,0,0.5);}
+.subtitle { color: #64748b; font-size: 17px; margin-bottom: 25px; letter-spacing: 2px; font-weight: bold; text-transform: uppercase;}
+.info-box { background-color: #12121a; border-radius: 12px; padding: 18px 20px; margin: 12px 0; display: flex; flex-direction: column; border: 1px solid #1f1f2e; border-left: 5px solid #475569; text-align: left;}
+.info-box .label { color: #64748b; font-size: 13px; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
+.info-box .value { color: #f8fafc; font-size: 20px; font-weight: 700; margin-top: 5px; }
+.alert-box { background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 15px; color: #fbbf24; font-weight: 800; margin: 25px 0 10px 0; }
+.earnings-badge { background: #1e293b; color: #94a3b8; padding: 10px 20px; border-radius: 30px; font-size: 16px; font-weight: 900; display: inline-block; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; border: 1px solid #334155; }
+div[data-testid="stForm"] { background: #0d0d12; border: 1px solid #1f1f2e; border-radius: 12px; padding: 25px; }
+button[kind="primaryFormSubmit"] { background-color: #1e293b !important; color: #cbd5e1 !important; font-weight: 900 !important; font-size: 18px !important; text-transform: uppercase !important; letter-spacing: 1px !important; border-radius: 8px !important; border: 1px solid #475569 !important; transition: 0.3s !important; }
+button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; transform: scale(1.02); color: #f8fafc !important; border-color: #64748b !important; }
+</style>
+""", unsafe_allow_html=True)
+    # Boton de volver eliminado (Uso de nueva pestaña)
+    st.markdown(f"""
+<div class="card">
+<div class="title_box" style="margin-bottom: 25px; margin-top: 15px;">Área Operativa 🏆</div>
+<div class="info-box">
+<div class="label">👤 BOOSTER</div>
+<div class="value">Cuenta asignada a <b>{booster_asignado}</b></div>
+</div>
+<div class="info-box">
+<div class="label">🔑 CREDENCIALES DE ACCESO:</div>
+<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 20px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
+</div>
+<div class="info-box">
+<div class="label">📝 NOTAS DEL PEDIDO:</div>
+<div class="value" style="color: #e2e8f0; font-size: 16px;">{notas_pedido}</div>
+</div>
+<div class="info-box" style="border-left-color: #f59e0b;">
+  <div class="label">⏳ ENTREGA CUENTA</div>
+  <div class="value" style="color: #fbbf24; font-size: 20px;">{dias_restantes} &nbsp;<span style="color:#64748b; font-size: 14px;">(Límite: {fecha_limite_ped_ui})</span></div>
+</div>
+<div class="alert-box">
+⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
+<span style="color:#d97706; font-size: 14px; margin-top: 5px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
+</div>
+<div style="margin-top: 25px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
+</div>
+""", unsafe_allow_html=True)
+    with st.form("form_booster"):
+        st.markdown("<p style='font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 5px;'>🔗 Enlace de Seguimiento de Partidas (OP.GG):</p>", unsafe_allow_html=True)
+        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
+        if st.form_submit_button("Registrar OP.GG 🚀"):
+            if opgg_input.strip() == "" or not opgg_input.startswith("http"):
+                st.error("Validación fallida: Registra una URL válida.")
+            else:
+                conn = get_connection()
+                if conn:
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
+                            conn.commit()
+                        st.success("¡Registro completado exitosamente! 💪")
+                    except Exception as e: st.error(f"Error: {e}")
+                    finally: conn.close()
+    st.stop()
+
+    st.stop()
+
+# ==============================================================================
+# 🚀 ENRUTADOR DE VISTAS PÚBLICAS (TOKEN Y RANKING)
+# ==============================================================================
+if "view" in st.query_params and st.query_params["view"] == "ranking":
+    render_public_ranking()
+    st.stop()
+
+# ==============================================================================
+# 🎮 MOTOR DE AUDITORÍA Y ALERTAS
+# ==============================================================================
+
+def ejecutar_auditoria_alertas():
+    # Obtener Webhook de alertas
+    url_alertas = run_query("SELECT valor FROM sistema_config WHERE clave = 'discord_webhook_alertas'")
+    if url_alertas.empty or not url_alertas.iloc[0,0]:
+        st.error("Configuración de Discord no encontrada.")
+        return 0
+    webhook_url = url_alertas.iloc[0,0]
+    query_24h = """
+        SELECT id, booster_nombre, user_pass, fecha_limite, 
+               (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
+        FROM pedidos 
+        WHERE estado = 'En progreso' 
+        AND fecha_limite IS NOT NULL AND fecha_limite != ''
+    """
+    df_alert = run_query(query_24h)
+    alertas_enviadas = 0
+    if not df_alert.empty:
+        from core.discord_handler import DiscordNotifier, COLOR_DANGER, COLOR_WARNING
+        notifier = DiscordNotifier(webhook_url)
+        for _, row in df_alert.iterrows():
+            try:
+                f_limite = pd.to_datetime(row['fecha_limite'])
+                diferencia = f_limite - datetime.now()
+                # Alerta Urgente: Menos de 24 horas
+                if 0 < diferencia.total_seconds() < 86400:
+                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    notifier.enviar_notificacion(
+                        titulo="⚠️ PEDIDO POR VENCER (24H)",
+                        descripcion=f"El pedido #{row['id']} para **{row['user_pass']}** está a menos de 24 horas de su límite.",
+                        color=COLOR_DANGER,
+                        content_text=f"¡Atención {mention}! Revisa tus tiempos de entrega.",
+                        campos=[
+                            {"name": "Booster", "value": row['booster_nombre'], "inline": True},
+                            {"name": "Límite", "value": row['fecha_limite'], "inline": True}
+                        ]
+                    )
+                    alertas_enviadas += 1
+            except: continue
+    # 2. Buscar pedidos sin OP.GG (> 2 días de iniciado)
+    query_opgg = """
+        SELECT id, booster_nombre, user_pass, fecha_inicio,
+               (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
+        FROM pedidos 
+        WHERE estado = 'En progreso' 
+        AND (opgg IS NULL OR opgg = '')
+    """
+    df_opgg = run_query(query_opgg)
+    if not df_opgg.empty:
+        from core.discord_handler import DiscordNotifier, COLOR_WARNING
+        notifier = DiscordNotifier(webhook_url)
+        for _, row in df_opgg.iterrows():
+            try:
+                f_inicio = pd.to_datetime(row['fecha_inicio'])
+                dias_transcurridos = (datetime.now() - f_inicio).days
+                if dias_transcurridos >= 2:
+                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    notifier.enviar_notificacion(
+                        titulo="🔗 FALTA LINK OPGG",
+                        descripcion=f"El pedido #{row['id']} lleva {dias_transcurridos} días sin link de seguimiento registrado.",
+                        color=COLOR_WARNING,
+                        content_text=f"Recuerda registrar el OP.GG {mention}.",
+                        campos=[
+                            {"name": "Booster", "value": row['booster_nombre'], "inline": True},
+                            {"name": "Cuenta", "value": row['user_pass'], "inline": True}
+                        ]
+                    )
+                    alertas_enviadas += 1
+            except: continue
+    return alertas_enviadas
+
+
+# ==============================================================================
+# 🔐 RENDERIZADO DE LOGIN (SI NO ESTÁ AUTENTICADO)
+# ==============================================================================
+
+if not st.session_state.authenticated:
+    with login_placeholder.container():
+        c1, c2, c3 = st.columns([1, 1.5, 1])
+        with c2:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if is_staff_portal:
+                st.markdown("""
+                    <div style='text-align: center;'>
+                        <h2 style='color: #58a6ff; margin-bottom: 5px;'>👨‍💻 Portal de Staff</h2>
+                        <p style='color: #8b949e; font-size: 14px;'>Identifícate para ver tus pedidos</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                with st.form("staff_login_form"):
+                    u_name = st.text_input("Nombre de Staff:", placeholder="Ej: Perez")
+                    u_pass = st.text_input("Contraseña:", type="password")
+                    mantener = st.checkbox("Recordarme", value=True)
+                    submit = st.form_submit_button("Entrar al Panel 🚀")
+                    if submit:
+                        u_name_clean = u_name.strip()
+                        q_booster = f"SELECT nombre FROM boosters WHERE nombre ILIKE '{u_name_clean}' AND password = '{u_pass}'"
+                        df_check = run_query(q_booster)
+                        if not df_check.empty:
+                            st.session_state.authenticated = True
+                            st.session_state.user_role = "booster"
+                            u_name_found = df_check.iloc[0]['nombre']
+                            st.session_state.user_name = u_name_found
+                            st.session_state.login_successful = True
+                            if mantener:
+                                expira = datetime.now() + timedelta(days=3)
+                                cookie_manager.set("perez_login_token", f"booster|{u_name_found}", expires_at=expira)
+                            # Inyectar token en URL para persistencia F5
+                            st.query_params.s = get_session_token("booster", u_name_found)
+                            st.rerun()
+                        else:
+                            st.error("❌ Credenciales incorrectas.")
+            else:
+                st.markdown("""
+                    <div style='text-align: center;'>
+                        <h2 style='color: #2ecc71; margin-bottom: 5px;'>🔐 Acceso Administrativo</h2>
+                        <p style='color: #8b949e; font-size: 14px;'>Introduce la clave de seguridad</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                with st.form("admin_login_form"):
+                    u_pass = st.text_input("Credencial de Acceso:", type="password")
+                    mantener = st.checkbox("No cerrar sesión", value=True)
+                    submit = st.form_submit_button("Ingresar")
+                    if submit:
+                        try: clave_admin = st.secrets["ADMIN_PASSWORD"]
+                        except: clave_admin = os.getenv("ADMIN_PASSWORD")
+                        if u_pass == clave_admin:
+                            st.session_state.authenticated = True
+                            st.session_state.user_role = "admin"
+                            st.session_state.user_name = "Administrador"
+                            st.session_state.login_successful = True
+                            if mantener:
+                                expira = datetime.now() + timedelta(days=3)
+                                cookie_manager.set("perez_login_token", "admin|Administrador", expires_at=expira)
+                            # Inyectar token en URL
+                            st.query_params.s = get_session_token("admin", "Admin")
+                            st.rerun()
+                        else:
+                            st.error("❌ Clave incorrecta.")
+    st.stop()
+
+# ==============================================================================
+# 3. CONTENIDO AUTENTICADO
+# ==============================================================================
 if st.session_state.authenticated:
     # Header Uniforme con Botón de Cerrar Sesión
     h1, h2 = st.columns([8, 1.2])
@@ -1090,9 +1098,9 @@ with tab_ranking:
     query_rank = f"""
         SELECT booster_nombre, wr, fecha_inicio, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa 
         FROM pedidos 
-        WHERE estado = 'Terminado' AND pago_realizado = 1 
+        WHERE estado = 'Terminado'
         AND CAST(fecha_fin_real AS TEXT) LIKE '{MES_ACTUAL_ISO}%'
-        AND COALESCE((SELECT en_ranking FROM boosters WHERE nombre = booster_nombre LIMIT 1), 1) = 1
+        AND COALESCE((SELECT en_ranking FROM boosters WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(booster_nombre)) LIMIT 1), 1) = 1
     """
     df_month = run_query(query_rank)
     if not df_month.empty:

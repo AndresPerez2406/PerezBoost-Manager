@@ -206,12 +206,21 @@ class PerezBoostApp(ctk.CTk):
         except Exception as e:
             print(f"Error formateando fecha: {e}")
         URL_DASHBOARD = "https://perezboost-manager.streamlit.app"
-        texto_final = f"{URL_DASHBOARD}/?t={token_seguro}"
+        portal_link = f"{URL_DASHBOARD}/?v=staff"
+        
+        texto_final = (
+            f"🚀 NUEVO PEDIDO ASIGNADO\n\n"
+            f"🔗 **ACCESO DIRECTO:**\n"
+            f"{URL_DASHBOARD}/?t={token_seguro}\n\n"
+            f"📊 **TU PANEL:**\n"
+            f"{portal_link}\n"
+        )
+        
         self.clipboard_clear()
         self.clipboard_append(texto_final)
         self.update() 
-        print(f"✅ Copiado exitoso: {texto_final}")
-        messagebox.showinfo("Copiado", f"Info copiada al portapapeles:\n\n{texto_final}")
+        print(f"✅ Copiado exitoso (Con Portal): {texto_final}")
+        messagebox.showinfo("Copiado", f"Info copiada para el Booster:\n\n{texto_final}")
         
     # =========================================================================
     # SECCIÓN: DASHBOARD
