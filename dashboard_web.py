@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import psycopg2
 import os
@@ -676,7 +676,7 @@ def ejecutar_auditoria_alertas():
                 diferencia = f_limite - datetime.now()
                 # Alerta Urgente: Menos de 24 horas
                 if 0 < diferencia.total_seconds() < 86400:
-                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    mention = f"@{row['discord_id']}" if row['discord_id'] else f"**{row['booster_nombre']}**"
                     notifier.enviar_notificacion(
                         titulo="⚠️ PEDIDO POR VENCER (24H)",
                         descripcion=f"El pedido #{row['id']} para **{row['user_pass']}** está a menos de 24 horas de su límite.",
