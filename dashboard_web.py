@@ -681,7 +681,7 @@ def ejecutar_auditoria_alertas():
                         titulo="⚠️ PEDIDO POR VENCER (24H)",
                         descripcion=f"El pedido #{row['id']} para **{row['user_pass']}** está a menos de 24 horas de su límite.",
                         color=COLOR_DANGER,
-                        content_text=f"¡Atención {mention}! Revisa tus tiempos de entrega.",
+                        content_text=f"¡Atención {mention} Revisa tus tiempos de entrega.",
                         campos=[
                             {"name": "Booster", "value": row['booster_nombre'], "inline": True},
                             {"name": "Límite", "value": row['fecha_limite'], "inline": True}
