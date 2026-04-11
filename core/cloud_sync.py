@@ -63,13 +63,20 @@ def _motor_subida_postgres(nombre_target, connection_url):
                 ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
                 pago_realizado INTEGER DEFAULT 0,
                 opgg TEXT, notas TEXT,
-                bote_pedido DOUBLE PRECISION DEFAULT 0, bote_wr DOUBLE PRECISION DEFAULT 0
+                bote_pedido DOUBLE PRECISION DEFAULT 0, bote_wr DOUBLE PRECISION DEFAULT 0,
+                cuenta_ranking INTEGER DEFAULT 1
             );
         """)
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_pedido DOUBLE PRECISION DEFAULT 0;")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS bote_wr DOUBLE PRECISION DEFAULT 0;")
+        except: pass
+        try: cur_cloud.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS cuenta_ranking INTEGER DEFAULT 1;")
+        except: pass
 
         def migrar_tabla(origen, destino):
             if origen == "pedidos":
-                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr FROM pedidos")
+                cur_local.execute("SELECT id, booster_id, booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, estado, elo_final, wr, fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr, cuenta_ranking FROM pedidos")
             elif origen == "boosters":
                 cur_local.execute("SELECT id, nombre, binance, en_ranking, password, discord_id FROM boosters")
             elif origen == "wallet_perez":
@@ -88,8 +95,8 @@ def _motor_subida_postgres(nombre_target, connection_url):
                         id, booster_id, booster_nombre, user_pass, elo_inicial, 
                         fecha_inicio, fecha_limite, estado, elo_final, wr, 
                         fecha_fin_real, pago_cliente, pago_booster, ganancia_empresa, 
-                        ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ajuste_valor, pago_realizado, opgg, notas, bote_pedido, bote_wr, cuenta_ranking
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         booster_nombre = EXCLUDED.booster_nombre,
                         user_pass = EXCLUDED.user_pass,
@@ -104,7 +111,8 @@ def _motor_subida_postgres(nombre_target, connection_url):
                         opgg = COALESCE(NULLIF(EXCLUDED.opgg, ''), pedidos.opgg),
                         notas = COALESCE(NULLIF(EXCLUDED.notas, ''), pedidos.notas),
                         bote_pedido = EXCLUDED.bote_pedido,
-                        bote_wr = EXCLUDED.bote_wr;
+                        bote_wr = EXCLUDED.bote_wr,
+                        cuenta_ranking = EXCLUDED.cuenta_ranking;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "boosters":
@@ -227,7 +235,7 @@ def _motor_bajar_postgres(nombre_target, connection_url):
         bajar("inventario", "inventario")
         bajar("config_precios", "config_precios")
         
-        cols_pedidos = ["id", "booster_id", "booster_nombre", "user_pass", "elo_inicial", "fecha_inicio", "fecha_limite", "estado", "elo_final", "wr", "fecha_fin_real", "pago_cliente", "pago_booster", "ganancia_empresa", "ajuste_valor", "pago_realizado", "opgg", "notas", "bote_pedido", "bote_wr"]
+        cols_pedidos = ["id", "booster_id", "booster_nombre", "user_pass", "elo_inicial", "fecha_inicio", "fecha_limite", "estado", "elo_final", "wr", "fecha_fin_real", "pago_cliente", "pago_booster", "ganancia_empresa", "ajuste_valor", "pago_realizado", "opgg", "notas", "bote_pedido", "bote_wr", "cuenta_ranking"]
         bajar("pedidos", "pedidos", cols_pedidos)
         bajar("wallet_perez", "wallet_perez")
         bajar("sistema_config", "sistema_config")

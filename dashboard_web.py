@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import psycopg2
 import os
@@ -189,6 +189,7 @@ def render_public_ranking():
         FROM pedidos p
         WHERE p.fecha_fin_real LIKE '{MES_ACTUAL_ISO}%'
         AND COALESCE((SELECT en_ranking FROM boosters WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(p.booster_nombre)) LIMIT 1), 1) = 1
+        AND COALESCE(p.cuenta_ranking, 1) = 1
     """
     df_raw = run_query(query_publica)
     if not df_raw.empty:
@@ -213,23 +214,13 @@ def render_public_ranking():
         df_term['pago_cliente'] = pd.to_numeric(df_term['pago_cliente'], errors='coerce').fillna(0)
         df_term['pago_booster'] = pd.to_numeric(df_term['pago_booster'], errors='coerce').fillna(0)
         df_term['ganancia_empresa'] = pd.to_numeric(df_term['ganancia_empresa'], errors='coerce').fillna(0)
-        df_term['bote_calc'] = df_term['pago_cliente'] - df_term['pago_booster'] - df_term['ganancia_empresa']
-        if 'bote_pedido' not in df_term.columns: df_term['bote_pedido'] = 0.0
-        if 'bote_wr' not in df_term.columns: df_term['bote_wr'] = 0.0
-        df_term['bote_pedido'] = pd.to_numeric(df_term['bote_pedido'], errors='coerce').fillna(0.0)
-        df_term['bote_wr'] = pd.to_numeric(df_term['bote_wr'], errors='coerce').fillna(0.0)
         bote_pedidos_hist = 0.0
         bote_wr_hist = 0.0
         for _, r in df_term.iterrows():
-            bp = float(r['bote_pedido'])
-            bw = float(r['bote_wr'])
-            bc = float(r['bote_calc'])
-            if bp == 0 and bw == 0 and bc > 0:
-                bote_pedidos_hist += bc
-            else:
-                bote_pedidos_hist += bp
-                bote_wr_hist += bw
-        bote_total = df_term['bote_calc'].sum()
+            bote_pedidos_hist += float(r['bote_pedido'])
+            bote_wr_hist += float(r['bote_wr'])
+        
+        bote_total = bote_pedidos_hist + bote_wr_hist
         ajuste_str = ""
         if NOMBRE_MES_ACTUAL == "FEBRERO" and ANIO_ACTUAL == 2026:
             bote_total += 11.0
@@ -658,8 +649,11 @@ def ejecutar_auditoria_alertas():
         st.error("Configuración de Discord no encontrada.")
         return 0
     webhook_url = url_alertas.iloc[0,0]
+    
+    dashboard_url = "https://perezboost-manager.streamlit.app"
+
     query_24h = """
-        SELECT id, booster_nombre, user_pass, fecha_limite, 
+        SELECT id, booster_nombre, elo_inicial, fecha_limite, 
                (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
         FROM pedidos 
         WHERE estado = 'En progreso' 
@@ -676,12 +670,15 @@ def ejecutar_auditoria_alertas():
                 diferencia = f_limite - datetime.now()
                 # Alerta Urgente: Menos de 24 horas
                 if 0 < diferencia.total_seconds() < 86400:
-                    mention = f"@{row['discord_id']}" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    token = base64.urlsafe_b64encode(f"perez-{row['id']}".encode()).decode()
+                    secure_link = f"{dashboard_url}/?t={token}"
+                    
                     notifier.enviar_notificacion(
                         titulo="⚠️ PEDIDO POR VENCER (24H)",
-                        descripcion=f"El pedido #{row['id']} para **{row['user_pass']}** está a menos de 24 horas de su límite.",
+                        descripcion=f"Tu pedido de **{row['elo_inicial']}** está a menos de 24 horas de su límite.\n\n🔗 [Ver detalles en el Área Operativa]({secure_link})",
                         color=COLOR_DANGER,
-                        content_text=f"¡Atención {mention} Revisa tus tiempos de entrega.",
+                        content_text=f"¡Atención {mention}! Revisa tus tiempos de entrega.",
                         campos=[
                             {"name": "Booster", "value": row['booster_nombre'], "inline": True},
                             {"name": "Límite", "value": row['fecha_limite'], "inline": True}
@@ -691,7 +688,7 @@ def ejecutar_auditoria_alertas():
             except: continue
     # 2. Buscar pedidos sin OP.GG (> 2 días de iniciado)
     query_opgg = """
-        SELECT id, booster_nombre, user_pass, fecha_inicio,
+        SELECT id, booster_nombre, elo_inicial, fecha_inicio,
                (SELECT discord_id FROM boosters WHERE nombre = booster_nombre) as discord_id
         FROM pedidos 
         WHERE estado = 'En progreso' 
@@ -707,14 +704,17 @@ def ejecutar_auditoria_alertas():
                 dias_transcurridos = (datetime.now() - f_inicio).days
                 if dias_transcurridos >= 2:
                     mention = f"<@{row['discord_id']}>" if row['discord_id'] else f"**{row['booster_nombre']}**"
+                    token = base64.urlsafe_b64encode(f"perez-{row['id']}".encode()).decode()
+                    secure_link = f"{dashboard_url}/?t={token}"
+                    
                     notifier.enviar_notificacion(
                         titulo="🔗 FALTA LINK OPGG",
-                        descripcion=f"El pedido #{row['id']} lleva {dias_transcurridos} días sin link de seguimiento registrado.",
+                        descripcion=f"Tu pedido de **{row['elo_inicial']}** lleva {dias_transcurridos} días sin link de seguimiento registrado.\n\n🔗 [Registrar OP.GG aquí]({secure_link})",
                         color=COLOR_WARNING,
                         content_text=f"Recuerda registrar el OP.GG {mention}.",
                         campos=[
                             {"name": "Booster", "value": row['booster_nombre'], "inline": True},
-                            {"name": "Cuenta", "value": row['user_pass'], "inline": True}
+                            {"name": "Estado", "value": "Pendiente de Link", "inline": True}
                         ]
                     )
                     alertas_enviadas += 1
@@ -871,13 +871,13 @@ with tab_reportes:
                             txt_dias = f"{diff} {'día' if diff == 1 else 'días'}"
             except:
                 txt_dias = "N/A"
-            mi_neto_real = g_empresa
+            # Usamos la lógica unificada de columnas bote_pedido + bote_wr
+            mi_neto_real = float(row.ganancia_empresa)
             try: b_ped = float(row.bote_pedido)
             except: b_ped = 0.0
             try: b_wr = float(row.bote_wr)
             except: b_wr = 0.0
-            calc_viejo = p_cli - p_boo - mi_neto_real
-            valor_bote = (b_ped + b_wr) if (b_ped + b_wr) > 0 else calc_viejo
+            valor_bote = b_ped + b_wr
             t_staff += p_boo
             t_neto += mi_neto_real
             t_bote += valor_bote
@@ -1438,17 +1438,17 @@ def modal_eliminar_transaccion(id_real, detalle):
 with tab_binance:
     st.subheader("🏦 Binance Wallet")
     # 1. CÁLCULO EN VIVO DE FONDOS (Igual al PC)
-    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, ganancia_empresa FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
+    df_pedidos_all = run_query("SELECT pago_cliente, pago_booster, ganancia_empresa, bote_pedido, bote_wr FROM pedidos WHERE estado = 'Terminado' AND pago_realizado = 1")
     neto_historico = 0.0
     bote_historico = 0.0
     if not df_pedidos_all.empty:
-        # Usamos clean_num en todas las columnas para evitar fallos de tipo (Decimal/String)
-        df_pedidos_all['p_cli'] = df_pedidos_all['pago_cliente'].apply(clean_num)
-        df_pedidos_all['p_boo'] = df_pedidos_all['pago_booster'].apply(clean_num)
+        # Usamos clean_num y sumamos las columnas de bote directamente para total consistencia
         df_pedidos_all['g_emp'] = df_pedidos_all['ganancia_empresa'].apply(clean_num)
+        df_pedidos_all['b_ped'] = df_pedidos_all['bote_pedido'].apply(clean_num)
+        df_pedidos_all['b_wr'] = df_pedidos_all['bote_wr'].apply(clean_num)
+        
         neto_historico = df_pedidos_all['g_emp'].sum()
-        # El bote es la diferencia: Cliente - Booster - Empresa
-        bote_historico = (df_pedidos_all['p_cli'] - df_pedidos_all['p_boo'] - df_pedidos_all['g_emp']).sum()
+        bote_historico = (df_pedidos_all['b_ped'] + df_pedidos_all['b_wr']).sum()
     # Ajuste histórico forzoso (Mismo que en main.py)
     neto_historico += 5.0
     bote_historico -= 5.0

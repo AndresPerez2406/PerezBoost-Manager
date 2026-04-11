@@ -85,30 +85,9 @@ def inicializar_db():
         cursor.executemany("INSERT INTO config_precios VALUES (?, ?, ?, ?)", precios)
     
     conn.commit()
-    reparar_base_datos_antigua(cursor)
-    
     conn.commit()
     conn.close()
 
-def reparar_base_datos_antigua(cursor):
-    try:
-        cursor.execute("""
-            SELECT id, pago_cliente, pago_booster, wr, ganancia_empresa 
-            FROM pedidos 
-            WHERE estado = 'Terminado' 
-            AND (pago_cliente - pago_booster - ganancia_empresa) <= 0
-        """)
-        filas_corruptas = cursor.fetchall()
-        for fila in filas_corruptas:
-            id_p, p_cli, p_boo, wr, g_emp = fila
-            p_cli = float(p_cli or 0.0)
-            p_boo = float(p_boo or 0.0)
-            wr_val = float(wr or 0.0)
-            bote_asumido = 2.0 if wr_val >= 60 else 1.0
-            g_empresa_corregida = p_cli - p_boo - bote_asumido
-            cursor.execute("UPDATE pedidos SET ganancia_empresa = ? WHERE id = ?", (g_empresa_corregida, id_p))
-    except Exception as e:
-        print(f"⚠️ Nota: El auto-reparador omitió el proceso: {e}")
 
 # ==========================================
 # SECCIÓN 1: GESTIÓN DE BOOSTERS
@@ -620,19 +599,22 @@ def obtener_ranking_staff_db(filtro_fecha=None):
     cursor.execute(query, (f"{filtro_fecha}%",))
     ranking = cursor.fetchall(); conn.close(); return ranking
 
-def obtener_total_bote_ranking():
+def obtener_total_bote_ranking(mes_filtro=None):
     conn = conectar(); cursor = conn.cursor()
-    mes_actual = datetime.now().strftime("%Y-%m")
+    if not mes_filtro: mes_filtro = datetime.now().strftime("%Y-%m")
+    
+    # Solo sumar bote de pedidos que cuentan para el ranking
     sql = """
-        SELECT SUM(pago_cliente - pago_booster - ganancia_empresa) 
+        SELECT SUM(IFNULL(bote_pedido, 0) + IFNULL(bote_wr, 0)) 
         FROM pedidos
         WHERE estado = 'Terminado'
         AND fecha_fin_real LIKE ?
+        AND COALESCE((SELECT en_ranking FROM boosters WHERE nombre = booster_nombre LIMIT 1), 1) = 1
     """
-    cursor.execute(sql, (f"{mes_actual}%",))
+    cursor.execute(sql, (f"{mes_filtro}%",))
     resultado = cursor.fetchone()
     conn.close()
-    return resultado[0] if resultado and resultado[0] else 0.0
+    return float(resultado[0] if resultado and resultado[0] else 0.0)
 
 def obtener_pedidos_mes_actual_db():
     conn = conectar(); cursor = conn.cursor()
@@ -652,6 +634,7 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
     else:
         where_clause = "WHERE estado IN ('Terminado', 'Abandonado')"
         params = ()
+        
     query = f"""
         SELECT 
             COUNT(CASE WHEN estado = 'Terminado' THEN 1 END),
