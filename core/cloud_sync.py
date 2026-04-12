@@ -120,10 +120,7 @@ def _motor_subida_postgres(nombre_target, connection_url):
                     INSERT INTO boosters (id, nombre, binance, en_ranking, password, discord_id) VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         nombre = EXCLUDED.nombre,
-                        binance = EXCLUDED.binance,
-                        en_ranking = EXCLUDED.en_ranking,
-                        password = COALESCE(NULLIF(EXCLUDED.password, ''), boosters.password),
-                        discord_id = COALESCE(NULLIF(EXCLUDED.discord_id, ''), boosters.discord_id);
+                        en_ranking = EXCLUDED.en_ranking;
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "wallet_perez":
