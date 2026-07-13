@@ -622,8 +622,71 @@ def obtener_pedidos_mes_actual_db():
     cursor.execute("""
         SELECT COUNT(*) FROM pedidos 
         WHERE estado = 'Terminado' AND fecha_fin_real LIKE ? AND bote_wr > 0
+        AND IFNULL(cuenta_ranking, 1) = 1
     """, (f"{mes_actual}%",))
     res = cursor.fetchone(); conn.close(); return res[0] if res else 0
+
+def disolver_ranking_mensual_db(filtro_fecha):
+    conn = conectar()
+    cursor = conn.cursor()
+    hoy = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Obtener todos los pedidos del mes con bote
+    cursor.execute("""
+        SELECT id, booster_nombre, bote_pedido, bote_wr, pago_realizado
+        FROM pedidos
+        WHERE estado = 'Terminado' 
+        AND fecha_fin_real LIKE ?
+        AND (IFNULL(bote_pedido, 0) > 0 OR IFNULL(bote_wr, 0) > 0)
+    """, (f"{filtro_fecha}%",))
+    
+    pedidos_con_bote = cursor.fetchall()
+    
+    for p in pedidos_con_bote:
+        id_pedido = p[0]
+        booster = p[1]
+        b_ped = float(p[2] or 0)
+        b_wr = float(p[3] or 0)
+        pago_realizado = int(p[4] or 0)
+        
+        # 1. El bote_pedido se va a ganancia_empresa del mismo pedido
+        # (Esto automáticamente lo añade al neto de la empresa en los reportes)
+        cursor.execute("""
+            UPDATE pedidos
+            SET ganancia_empresa = ganancia_empresa + ?,
+                bote_pedido = 0
+            WHERE id = ?
+        """, (b_ped, id_pedido))
+        
+        # 2. El bote_wr se va al booster
+        if b_wr > 0:
+            if pago_realizado == 0:
+                # Si el pedido original aún NO se le ha pagado, simplemente se lo sumamos a su pago_booster
+                cursor.execute("""
+                    UPDATE pedidos
+                    SET pago_booster = pago_booster + ?,
+                        bote_wr = 0
+                    WHERE id = ?
+                """, (b_wr, id_pedido))
+            else:
+                # Si el pedido YA se pagó, necesitamos crearle una liquidación pendiente (un nuevo registro)
+                cursor.execute("""
+                    INSERT INTO pedidos (booster_nombre, elo_final, estado, pago_booster, 
+                                         ganancia_empresa, pago_cliente, fecha_fin_real, 
+                                         pago_realizado, bote_pedido, bote_wr, cuenta_ranking)
+                    VALUES (?, 'Reembolso Bono WR', 'Terminado', ?, 0, 0, ?, 0, 0, 0, 0)
+                """, (booster, b_wr, hoy))
+                
+                # Y vaciar el bote_wr del pedido original
+                cursor.execute("""
+                    UPDATE pedidos
+                    SET bote_wr = 0
+                    WHERE id = ?
+                """, (id_pedido,))
+
+    conn.commit()
+    conn.close()
+    return len(pedidos_con_bote)
 
 def obtener_resumen_mensual_db(filtro_fecha=None):
     conn = conectar()
@@ -637,11 +700,11 @@ def obtener_resumen_mensual_db(filtro_fecha=None):
         
     query = f"""
         SELECT 
-            COUNT(CASE WHEN estado = 'Terminado' THEN 1 END),
+            COUNT(CASE WHEN estado = 'Terminado' AND elo_final != 'Reembolso Bono WR' AND IFNULL(cuenta_ranking, 1) = 1 THEN 1 END),
             COUNT(CASE WHEN estado = 'Abandonado' THEN 1 END),
-            COALESCE(AVG(CASE WHEN estado = 'Terminado' THEN wr END), 0),
-            COUNT(CASE WHEN estado = 'Terminado' AND bote_wr > 0 THEN 1 END),
-            COALESCE(AVG(CASE WHEN estado = 'Terminado' THEN JULIANDAY(fecha_fin_real) - JULIANDAY(fecha_inicio) END), 0)
+            COALESCE(AVG(CASE WHEN estado = 'Terminado' AND elo_final != 'Reembolso Bono WR' AND IFNULL(cuenta_ranking, 1) = 1 THEN wr END), 0),
+            COUNT(CASE WHEN estado = 'Terminado' AND bote_wr > 0 AND IFNULL(cuenta_ranking, 1) = 1 THEN 1 END),
+            COALESCE(AVG(CASE WHEN estado = 'Terminado' AND elo_final != 'Reembolso Bono WR' AND IFNULL(cuenta_ranking, 1) = 1 THEN JULIANDAY(fecha_fin_real) - JULIANDAY(fecha_inicio) END), 0)
         FROM pedidos {where_clause}
     """
     cursor.execute(query, params)

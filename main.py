@@ -210,10 +210,7 @@ class PerezBoostApp(ctk.CTk):
         
         texto_final = (
             f"🚀 NUEVO PEDIDO ASIGNADO\n\n"
-            f"🔗 **ACCESO DIRECTO:**\n"
-            f"{URL_DASHBOARD}/?t={token_seguro}\n\n"
-            f"📊 **TU PANEL:**\n"
-            f"{portal_link}\n"
+            f"{URL_DASHBOARD}/?t={token_seguro}"
         )
         
         self.clipboard_clear()
@@ -465,7 +462,7 @@ class PerezBoostApp(ctk.CTk):
                     
                     notifier.enviar_notificacion(
                         titulo="🚨 RETRASO CRÍTICO (24H)",
-                        descripcion=f"Tu pedido de **{p[2]}** está a menos de 24 horas de su límite.\n\n🔗 [Ver detalles en el Área Operativa]({secure_url})",
+                        descripcion=f"Un pedido asignado a ti está a menos de 24 horas de su límite.\n\n🔗 [Ver detalles en el Área Operativa]({secure_url})",
                         color=COLOR_DANGER,
                         content_text=f"¡Atención {ping}! Revisa tus tiempos de entrega."
                     )
@@ -603,7 +600,7 @@ class PerezBoostApp(ctk.CTk):
                     
                     notifier.enviar_notificacion(
                         titulo="🚨 REVISIÓN DIARIA DE SEGURIDAD",
-                        descripcion=f"**Booster:** {p[1]}\n**Pedido:** {p[2]}\nQuedan menos de 24h para la entrega.\n\n🔗 [Acceso Directo Área Operativa]({secure_url})",
+                        descripcion=f"**Booster:** {p[1]}\nQuedan menos de 24h para la entrega de un pedido.",
                         color=COLOR_WARNING,
                         content_text=ping
                     )
@@ -839,7 +836,7 @@ class PerezBoostApp(ctk.CTk):
                 self.win.destroy()
                 messagebox.showerror("Error", f"Fallo al subir: {e}")
                 
-            logica_subir_a_nube(fin, err)
+            logica_subir_a_nube(lambda: self.after(0, fin), lambda e: self.after(0, lambda err_val=e: err(err_val)))
             
         threading.Thread(target=proceso_subida).start()
         
@@ -872,7 +869,7 @@ class PerezBoostApp(ctk.CTk):
             self.win.destroy()
             messagebox.showerror("Error", f"Fallo: {e}")
             
-        threading.Thread(target=logica_bajar_de_nube, args=(fin, err)).start()
+        threading.Thread(target=logica_bajar_de_nube, args=(lambda: self.after(0, fin), lambda e: self.after(0, lambda err_val=e: err(err_val)))).start()
         
     # =========================================================================
     # SECCIÓN: BOOSTERS (STAFF)
@@ -1441,19 +1438,14 @@ class PerezBoostApp(ctk.CTk):
         
         def recalcular_neto(event=None):
             try:
-                c = float(e_cobro.get().replace("$","").strip() or 0)
-                s = float(e_staff.get().replace("$","").strip() or 0)
+                c_base = float(e_cobro.get().replace("$","").strip() or 0)
+                s_base = float(e_staff.get().replace("$","").strip() or 0)
                 val_wr_str = e_wr.get().replace("%","").strip()
                 wr_porc = float(val_wr_str) if val_wr_str else 0.0
                 
                 es_rank = var_ranking.get()
-                bp = sys_bp if var_ped.get() else 0.0
-                bw_real = sys_bw if (var_wr.get() and wr_porc >= 60.0) else 0.0
-                
-                # Si no es ranking, el BW va para el staff
-                bw_para_bote = bw_real if es_rank else 0.0
-                
-                n = c - s - bp - bw_real
+                bp_val = sys_bp if var_ped.get() else 0.0
+                bw_val = sys_bw if (var_wr.get() and wr_porc >= 60.0) else 0.0
                 
                 e_neto.configure(state="normal")
                 e_neto.delete(0, 'end')
@@ -1491,19 +1483,24 @@ class PerezBoostApp(ctk.CTk):
                 if not nueva_fecha: nueva_fecha = None
 
                 val_wr = float(e_wr.get().replace("%","").strip() or 0)
-                val_cobro = float(e_cobro.get().replace("$","").strip() or 0)
-                val_staff = float(e_staff.get().replace("$","").strip() or 0)
+                val_cobro_base = float(e_cobro.get().replace("$","").strip() or 0)
+                val_staff_base = float(e_staff.get().replace("$","").strip() or 0)
                 
                 es_rank = var_ranking.get()
-                val_bp = sys_bp if var_ped.get() else 0.0
-                bw_real = sys_bw if (var_wr.get() and val_wr >= 60.0) else 0.0
+                bp_total = sys_bp if var_ped.get() else 0.0
+                bw_total = sys_bw if (var_wr.get() and val_wr >= 60.0) else 0.0
                 
-                val_bw_bote = bw_real if es_rank else 0.0
-                val_neto = val_cobro - val_staff - val_bp - bw_real
+                # Lógica: BW pagado por cliente, BP pagado por empresa
+                # Redirección según ranking:
+                val_bp_bote = bp_total if es_rank else 0.0
+                val_bw_bote = bw_total if es_rank else 0.0
                 
-                # Si NO es ranking, el pago al staff aumenta en el bono WR 
-                # (Pero el NETO se mantiene igual porque el staff cobra mas)
-                val_staff_final = val_staff + (bw_real if not es_rank else 0.0)
+                pago_extra_booster = (bp_total if not es_rank else 0.0) + (bw_total if not es_rank else 0.0)
+                
+                # Resultados finales
+                val_pago_cliente = val_cobro_base + bw_total
+                val_staff_final = val_staff_base + pago_extra_booster
+                val_neto = val_cobro_base - val_staff_base - bp_total
 
                 conn = sqlite3.connect("perezboost.db")
                 cur = conn.cursor()
@@ -1512,7 +1509,7 @@ class PerezBoostApp(ctk.CTk):
                     UPDATE pedidos 
                     SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, ganancia_empresa=?, fecha_fin_real=?, pago_realizado=?, bote_pedido=?, bote_wr=?, cuenta_ranking=?
                     WHERE id=?
-                """, (combo_staff.get(), combo_elo.get(), val_wr, val_cobro, val_staff_final, val_neto, nueva_fecha, nuevo_estado_pago, val_bp, val_bw_bote, (1 if es_rank else 0), id_pedido))
+                """, (combo_staff.get(), combo_elo.get(), val_wr, val_pago_cliente, val_staff_final, val_neto, nueva_fecha, nuevo_estado_pago, val_bp_bote, val_bw_bote, (1 if es_rank else 0), id_pedido))
 
                 conn.commit(); conn.close()
                 
@@ -1529,7 +1526,7 @@ class PerezBoostApp(ctk.CTk):
         
         for widget in self.kpi_frame.winfo_children(): widget.destroy()
         for i in self.tabla_rep.get_children(): self.tabla_rep.delete(i)
-        # for widget in self.graficos_frame.winfo_children(): widget.destroy()
+        for widget in self.graficos_frame.winfo_children(): widget.destroy()
         
         mes_sel = self.combo_mes.get()
         booster_sel = self.combo_booster_rep.get()
@@ -1544,7 +1541,7 @@ class PerezBoostApp(ctk.CTk):
             except: return 0.0
 
         if not datos:
-            # ctk.CTkLabel(self.graficos_frame, text="⚠️ Sin registros finalizados").pack(expand=True)
+            ctk.CTkLabel(self.graficos_frame, text="⚠️ Sin registros finalizados").pack(expand=True)
             return
 
         contador_visual = 1
@@ -1557,21 +1554,25 @@ class PerezBoostApp(ctk.CTk):
             v_pago_staff = limpiar(r[12])
             mi_neto_real = limpiar(r[13])
 
-            txt_dias = "⚡ <24h"
-            d_num = 0
-            try:
-                f_ini_str = str(r[5]).split(' ')[0] if r[5] else ""
-                f_fin_str = str(r[10]).split(' ')[0] if r[10] else ""
-                if f_ini_str and f_fin_str:
-                    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
-                        try:
-                            d_ini = datetime.strptime(f_ini_str, fmt)
-                            d_fin = datetime.strptime(f_fin_str, fmt)
-                            d_num = (d_fin - d_ini).days
-                            txt_dias = f"{max(d_num, 1)} días"
-                            break
-                        except: continue
-            except: txt_dias = "N/A"
+            if r[8] == 'Reembolso Bono WR':
+                txt_dias = "N/A"
+                d_num = 0
+            else:
+                txt_dias = "⚡ <24h"
+                d_num = 0
+                try:
+                    f_ini_str = str(r[5]).split(' ')[0] if r[5] else ""
+                    f_fin_str = str(r[10]).split(' ')[0] if r[10] else ""
+                    if f_ini_str and f_fin_str:
+                        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                            try:
+                                d_ini = datetime.strptime(f_ini_str, fmt)
+                                d_fin = datetime.strptime(f_fin_str, fmt)
+                                d_num = (d_fin - d_ini).days
+                                txt_dias = f"{max(d_num, 1)} días"
+                                break
+                            except: continue
+                except: txt_dias = "N/A"
 
             try: 
                 bp_val = float(r[18] if r[18] is not None else 0.0)
@@ -1585,8 +1586,9 @@ class PerezBoostApp(ctk.CTk):
                 t_neto += mi_neto_real
                 t_bote += valor_bote
                 t_ventas += v_total_cli
-                conteo_pagados += 1
-                dias_totales += max(d_num, 1)
+                if r[8] != 'Reembolso Bono WR':
+                    conteo_pagados += 1
+                    dias_totales += max(d_num, 1)
                 tag_fila = 'pagado'
             else:
                 tag_fila = 'pendiente'
@@ -1610,7 +1612,7 @@ class PerezBoostApp(ctk.CTk):
         self.crear_card_mini(self.kpi_frame, "BOTE RECOLECTADO", f"${t_bote:.2f}", "#f1c40f", 2)
         self.crear_card_mini(self.kpi_frame, "VENTAS TOTALES", f"${t_ventas:.2f}", "#9b59b6", 3)
         self.crear_card_mini(self.kpi_frame, "VELOCIDAD MEDIA", f"{prom_dias:.1f} d", "#e67e22", 4)
-        # self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
+        self.dibujar_grafico_financiero(t_neto, t_staff, t_bote, booster_sel)
 
     def crear_card_mini(self, master, titulo, valor, color, col):
         card = ctk.CTkFrame(master, fg_color="#1a1a1a", border_width=1, border_color=color)
@@ -1618,6 +1620,49 @@ class PerezBoostApp(ctk.CTk):
         master.grid_columnconfigure(col, weight=1)
         ctk.CTkLabel(card, text=titulo, font=("Arial", 10, "bold"), text_color=color).pack(pady=(8,0))
         ctk.CTkLabel(card, text=valor, font=("Arial", 16, "bold"), text_color="white").pack(pady=(2,8))
+
+    def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
+        for widget in self.graficos_frame.winfo_children(): widget.destroy()
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        import matplotlib
+        matplotlib.use("TkAgg")
+
+        plt.close('all')
+        plt.rcParams.update({
+            'figure.facecolor': '#1a1a1a', 'axes.facecolor': '#1a1a1a',
+            'axes.edgecolor': '#444444', 'axes.labelcolor': 'white',
+            'xtick.color': 'white', 'ytick.color': 'white', 'text.color': 'white'
+        })
+
+        fig, ax = plt.subplots(figsize=(6, 2.8), dpi=100)
+        
+        label_izquierda = "Staff Total" if nombre_filtro == "Todos" else nombre_filtro
+
+        categorias = [label_izquierda, 'Perez (Neto)', 'Bote Ranking']
+        valores = [total_staff, total_perez, total_bote]
+        colores = ['#3498db', '#2ecc71', '#f1c40f']
+
+        barras = ax.bar(categorias, valores, color=colores, width=0.5, zorder=3)
+
+        ax.set_title(f'DISTRIBUCIÓN FINANCIERA: {label_izquierda.upper()}', fontsize=11, fontweight='bold', pad=15)
+        ax.set_ylabel('USD ($)', fontsize=9, fontweight='bold')
+        ax.grid(axis='y', linestyle='--', alpha=0.3, zorder=0)
+
+        for b in barras:
+            height = b.get_height()
+            if height > 0: 
+                ax.annotate(f'${height:,.2f}', 
+                            xy=(b.get_x() + b.get_width()/2, height),
+                            xytext=(0, 5), textcoords="offset points", 
+                            ha='center', va='bottom', weight='bold', fontsize=9, color="white")
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        canvas = FigureCanvasTkAgg(fig, master=self.graficos_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(expand=True, fill="both")
 
     def exportar_excel_avanzado(self):
         import pandas as pd
@@ -1780,7 +1825,9 @@ class PerezBoostApp(ctk.CTk):
         prize_frame = ctk.CTkFrame(main_frame, fg_color="#2c3e50")
         prize_frame.pack(fill="x", pady=(0, 20), padx=5)
         self.lbl_bote = ctk.CTkLabel(prize_frame, text="...", font=("Arial", 18, "bold"), text_color="#ecf0f1")
-        self.lbl_bote.pack(pady=15)
+        self.lbl_bote.pack(pady=(15, 5))
+        self.lbl_meta_ranking = ctk.CTkLabel(prize_frame, text="Meta: 0/15 Pedidos", font=("Arial", 14, "bold"), text_color="#e74c3c")
+        self.lbl_meta_ranking.pack(pady=(0, 15))
 
         stats_frame = ctk.CTkFrame(main_frame, fg_color="#1a1a1a", border_width=1, border_color="#5865F2")
         stats_frame.pack(fill="x", pady=(0, 20))
@@ -1857,6 +1904,15 @@ class PerezBoostApp(ctk.CTk):
             self.lbl_wr.configure(text=f"{wr_prom:.1f}%")
             self.lbl_bote.configure(text=f"💰 BOTE {nombre_mes.upper()}: ${bote_total:.2f} USD 💰\n{nota_ajuste}")
 
+            if cant_term < 15:
+                self.lbl_meta_ranking.configure(text=f"⚠️ Meta Global no cumplida: {cant_term}/15 Pedidos", text_color="#e74c3c")
+                try: self.btn_disolver.configure(state="normal")
+                except: pass
+            else:
+                self.lbl_meta_ranking.configure(text=f"✅ Meta Cumplida: {cant_term}/15 Pedidos", text_color="#2ecc71")
+                try: self.btn_disolver.configure(state="disabled")
+                except: pass
+
             ranking_data = obtener_ranking_staff_db(filtro)
             
             if not ranking_data:
@@ -1878,6 +1934,22 @@ class PerezBoostApp(ctk.CTk):
 
         ctk.CTkButton(btn_frame, text="📢 Publicar Ranking", command=self.compartir_ranking_discord, 
                     fg_color="#5865F2", hover_color="#4752C4", height=40).pack(side="left", expand=True, padx=10)
+
+        def ejecutar_disolucion():
+            nombre_mes = self.combo_mes_rank.get()
+            num_mes = str(meses_nombres.index(nombre_mes) + 1).zfill(2)
+            filtro = f"{anio_actual}-{num_mes}"
+            
+            if messagebox.askyesno("Disolver Ranking", f"¿Estás seguro de disolver el ranking de {nombre_mes}?\n\nLos Bonos WR se enviarán a los saldos pendientes de los boosters y los Bonos Pedido irán a tu neto."):
+                from core.database import disolver_ranking_mensual_db
+                cant = disolver_ranking_mensual_db(filtro)
+                registrar_log("DISOLVER_RANKING", f"Ranking disuelto para {nombre_mes} ({cant} pedidos procesados).")
+                messagebox.showinfo("Éxito", f"Ranking disuelto. Se procesaron {cant} pedidos con bote.")
+                actualizar_datos_ranking()
+
+        self.btn_disolver = ctk.CTkButton(btn_frame, text="❌ Disolver Ranking", command=ejecutar_disolucion, 
+                                          fg_color="#e74c3c", hover_color="#c0392b", height=40)
+        self.btn_disolver.pack(side="left", expand=True, padx=10)
 
         self.combo_mes_rank.configure(command=actualizar_datos_ranking)
         actualizar_datos_ranking()
@@ -1917,6 +1989,11 @@ class PerezBoostApp(ctk.CTk):
         if not ranking:
             messagebox.showinfo("Vacío", f"No hay datos en {mes_nombre} para publicar.")
             return
+
+        try: b_ped = float(obtener_config_sistema("bono_pedido") or 1.0)
+        except: b_ped = 1.0
+        try: b_wr = float(obtener_config_sistema("bono_wr") or 1.0)
+        except: b_wr = 1.0
 
         descripcion = f"# 🏆 HALL OF FAME - {mes_nombre.upper()} {anio}\n"
         descripcion += f"## 💰 BOTE ACUMULADO: `${total_bote:.2f} USD` 💰\n\n"
@@ -2309,7 +2386,7 @@ class PerezBoostApp(ctk.CTk):
             conn = conectar()
             cursor = conn.cursor()
             mes_actual_iso = datetime.now().strftime("%Y-%m")
-            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_actual_iso}%",))
+            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ? AND IFNULL(cuenta_ranking, 1) = 1 AND elo_final != 'Reembolso Bono WR'", (f"{mes_actual_iso}%",))
             num_orden_mes = cursor.fetchone()[0] + 1
             conn.close()
         except:
@@ -2417,16 +2494,24 @@ class PerezBoostApp(ctk.CTk):
                     p_cli_base = float(tarifa[0])
                     g_per_base = float(tarifa[1])
 
-                    # Lógica de Redirección de Bono WR
-                    bonus_wr_real = aporte_wr
-                    aporte_wr_final = bonus_wr_real if var_ranking.get() else 0.0
-                    pago_extra_booster = bonus_wr_real if not var_ranking.get() else 0.0
-
-                    p_cliente = p_cli_base 
-                    p_booster = (p_cli_base - g_per_base) + ajuste + pago_extra_booster
-                    g_perez = (g_per_base - aporte_ped - bonus_wr_real) - ajuste
+                    # Lógica de Redirección de Bonos
+                    es_rank = var_ranking.get()
                     
-                    aporte_wr = aporte_wr_final # Lo que va al Bote real
+                    # Lo que el cliente paga (Base + Bono WR si aplica)
+                    p_cliente = p_cli_base + aporte_wr
+                    
+                    # Lo que va al Bote (Ranking)
+                    aporte_ped_final = aporte_ped if es_rank else 0.0
+                    aporte_wr_final = aporte_wr if es_rank else 0.0
+                    
+                    # Lo que va al Booster (Extra si no hay ranking)
+                    extra_staff = (aporte_ped if not es_rank else 0.0) + (aporte_wr if not es_rank else 0.0)
+                    
+                    p_booster = (p_cli_base - g_per_base) + ajuste + extra_staff
+                    g_perez = (g_per_base - aporte_ped) - ajuste
+                    
+                    aporte_ped = aporte_ped_final
+                    aporte_wr = aporte_wr_final
                 else:
                     p_cliente, g_perez, p_booster = 0.0, 0.0, 0.0
 
@@ -2459,7 +2544,7 @@ class PerezBoostApp(ctk.CTk):
                 if finalizar_pedido_db(id_r, wr, fecha_hoy_iso, elo_fin, g_perez, p_booster, p_cliente, ajuste, aporte_ped, aporte_wr, cuenta_ranking_val):
                     if var_publicar.get():
                         try:
-                            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ?", (f"{mes_cierre_iso}%",))
+                            cursor.execute("SELECT COUNT(*) FROM pedidos WHERE estado = 'Terminado' AND fecha_fin_real LIKE ? AND IFNULL(cuenta_ranking, 1) = 1 AND elo_final != 'Reembolso Bono WR'", (f"{mes_cierre_iso}%",))
                             num_orden_discord = cursor.fetchone()[0]
                             url = obtener_config_sistema("discord_webhook")
 
@@ -2467,6 +2552,10 @@ class PerezBoostApp(ctk.CTk):
                                 cursor.execute("SELECT COUNT(*) FROM pedidos WHERE booster_nombre = ? AND estado = 'Terminado' AND fecha_fin_real LIKE ?", (nom_booster, f"{mes_cierre_iso}%"))
                                 total_mes_booster = cursor.fetchone()[0]
                                 noti = DiscordNotifier(url)
+
+                                desc_notificacion = ""
+                                if not var_ranking.get():
+                                    desc_notificacion = "⚠️ **Este booster no está en el Ranking. No suma pedido al bote.**"
 
                                 campos_embed = [
                                     {"name": "👤 STAFF", "value": f"**{nom_booster}**", "inline": True},
@@ -2479,7 +2568,7 @@ class PerezBoostApp(ctk.CTk):
                                 
                                 noti.enviar_notificacion(
                                     titulo=f"✅ PEDIDO #{num_orden_discord} DE {nombre_mes_es}", 
-                                    descripcion="", 
+                                    descripcion=desc_notificacion, 
                                     color=5763719, 
                                     campos=campos_embed
                                 )

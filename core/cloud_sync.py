@@ -86,7 +86,7 @@ def _motor_subida_postgres(nombre_target, connection_url):
                 
             filas = cur_local.fetchall()
             if not filas: return
-            def limpiar(v): return None if v in ["NULL", "NONE", ""] else v
+            def limpiar(v): return None if v in ["NULL", "NONE", "", "-"] else v
             filas_L = [tuple([limpiar(x) for x in list(f)]) for f in filas]
 
             if destino == "pedidos":
@@ -116,6 +116,11 @@ def _motor_subida_postgres(nombre_target, connection_url):
                 """
                 extras.execute_batch(cur_cloud, query, filas_L)
             elif destino == "boosters":
+                ids_locales = [f[0] for f in filas_L]
+                if ids_locales:
+                    format_strings = ','.join(['%s'] * len(ids_locales))
+                    cur_cloud.execute(f"DELETE FROM boosters WHERE id NOT IN ({format_strings})", tuple(ids_locales))
+                
                 query = """
                     INSERT INTO boosters (id, nombre, binance, en_ranking, password, discord_id) VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET

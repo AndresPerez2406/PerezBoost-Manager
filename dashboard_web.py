@@ -676,7 +676,7 @@ def ejecutar_auditoria_alertas():
                     
                     notifier.enviar_notificacion(
                         titulo="⚠️ PEDIDO POR VENCER (24H)",
-                        descripcion=f"Tu pedido de **{row['elo_inicial']}** está a menos de 24 horas de su límite.\n\n🔗 [Ver detalles en el Área Operativa]({secure_link})",
+                        descripcion=f"Un pedido asignado a ti está a menos de 24 horas de su límite.\n\n🔗 [Ver detalles en el Área Operativa]({secure_link})",
                         color=COLOR_DANGER,
                         content_text=f"¡Atención {mention}! Revisa tus tiempos de entrega.",
                         campos=[
@@ -709,7 +709,7 @@ def ejecutar_auditoria_alertas():
                     
                     notifier.enviar_notificacion(
                         titulo="🔗 FALTA LINK OPGG",
-                        descripcion=f"Tu pedido de **{row['elo_inicial']}** lleva {dias_transcurridos} días sin link de seguimiento registrado.\n\n🔗 [Registrar OP.GG aquí]({secure_link})",
+                        descripcion=f"Uno de tus pedidos lleva {dias_transcurridos} días sin link de seguimiento registrado.\n\n🔗 [Registrar OP.GG aquí]({secure_link})",
                         color=COLOR_WARNING,
                         content_text=f"Recuerda registrar el OP.GG {mention}.",
                         campos=[
@@ -1120,11 +1120,21 @@ with tab_ranking:
             Promedio_Dias=('dias', 'mean'),
             WR_Promedio=('wr', 'mean')
         ).reset_index()
-        df_grouped['USD_por_Dia'] = df_grouped['Total_Neto'] / df_grouped['Total_Dias']
-        df_grouped['WR_Promedio'] = df_grouped['WR_Promedio'].round(1)
-        df_grouped['Promedio_Dias'] = df_grouped['Promedio_Dias'].round(1)
+        df_grouped['Total_Dias'] = pd.to_numeric(df_grouped['Total_Dias'], errors='coerce').fillna(1.0).apply(lambda x: x if x > 0 else 1.0)
+        df_grouped['USD_por_Dia'] = pd.to_numeric(df_grouped['Total_Neto'] / df_grouped['Total_Dias'], errors='coerce').fillna(0.0)
+        df_grouped['WR_Promedio'] = pd.to_numeric(df_grouped['WR_Promedio'], errors='coerce').fillna(0.0).round(1)
+        df_grouped['Promedio_Dias'] = pd.to_numeric(df_grouped['Promedio_Dias'], errors='coerce').fillna(1.0).round(1)
         df_grouped['USD_por_Dia'] = df_grouped['USD_por_Dia'].round(2)
-        df_grouped['Total_Neto'] = df_grouped['Total_Neto'].round(2)
+        df_grouped['Total_Neto'] = pd.to_numeric(df_grouped['Total_Neto'], errors='coerce').fillna(0.0).round(2)
+        def _clean_size(val):
+            try:
+                v = float(val)
+                if pd.isna(v) or v <= 0 or v == float('inf') or v == float('-inf'):
+                    return 5.0
+                return max(5.0, min(v, 100.0))
+            except:
+                return 5.0
+        df_grouped['Tamaño_Grafico'] = df_grouped['USD_por_Dia'].apply(_clean_size)
         c1, c2 = st.columns(2)
         with c1:
             st.success("💎 **Most Valuable Players (Más Ganancia Total)**")
@@ -1149,14 +1159,15 @@ with tab_ranking:
             df_grouped, 
             x='Promedio_Dias', 
             y='Total_Neto', 
-            size='USD_por_Dia', 
+            size='Tamaño_Grafico', 
             color='booster_nombre',
             hover_name='booster_nombre',
-            hover_data={'Pedidos': True, 'WR_Promedio': True},
+            hover_data={'Pedidos': True, 'WR_Promedio': True, 'USD_por_Dia': True, 'Tamaño_Grafico': False},
             labels={
                 "Promedio_Dias": "Tiempo Promedio por Pedido (Días)", 
                 "Total_Neto": "Ganancia Neta Generada ($)",
                 "USD_por_Dia": "Eficiencia ($/Día)",
+                "Tamaño_Grafico": "Eficiencia ($/Día)",
                 "booster_nombre": "Staff"
             },
             template="plotly_dark",
