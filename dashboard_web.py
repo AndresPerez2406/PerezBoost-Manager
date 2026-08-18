@@ -1,15 +1,22 @@
+# pyrefly: ignore [missing-import]
 import streamlit as st
 import pandas as pd
 import psycopg2
 import os
 import base64
 from datetime import datetime, timedelta
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 import plotly.express as px
+# pyrefly: ignore [missing-import]
 import plotly.graph_objects as go
+# pyrefly: ignore [missing-import]
 from pathlib import Path
 import warnings
+# pyrefly: ignore [missing-import]
 import extra_streamlit_components as stx
+# pyrefly: ignore [missing-import]
 import time
 
 # ==============================================================================
@@ -350,17 +357,45 @@ def render_booster_dashboard(booster_name):
             st.success("¡Todo al día! No tienes pedidos pendientes.")
         else:
             for _, row in df_activos.iterrows():
-                with st.expander(f"🎮 {row['user_pass']}"):
+                has_opgg = pd.notna(row['opgg']) and str(row['opgg']).strip() != ""
+                exp_label = f"🎮 {row['user_pass']} {'✅ (OP.GG Registrado)' if has_opgg else '⚠️ (Falta OP.GG)'}"
+                with st.expander(exp_label, expanded=True):
                     ca, cb = st.columns([3, 1])
                     with ca:
                         st.write(f"**Elo / Objetivo:** {row['elo_inicial']}")
                         v_notas = row['notas'] if pd.notna(row['notas']) and str(row['notas']).strip() != "" else "Ninguna"
                         st.info(f"📝 **Notas:** {v_notas}")
-                        if row['opgg']: st.markdown(f"🔗 <a href='{row['opgg']}' target='_blank'>Ver OP.GG</a>", unsafe_allow_html=True)
                     with cb:
                         st.write(f"**Límite:** {row['fecha_limite']}")
                         token = base64.urlsafe_b64encode(f"perez-{row['id']}".encode()).decode()
-                        st.markdown(f"<a href='/?t={token}' target='_blank' style='text-decoration:none;'><button style='width:100%; cursor:pointer; background:#2ecc71; border:none; color:black; padding:10px; border-radius:5px; font-weight:bold;'>VER DETALLES</button></a>", unsafe_allow_html=True)
+                        st.markdown(f"<a href='/?t={token}' target='_blank' style='text-decoration:none;'><button style='width:100%; cursor:pointer; background:#334155; border:1px solid #475569; color:#f8fafc; padding:8px; border-radius:5px; font-weight:bold; font-size:12px;'>VER FICHA COMPLETA</button></a>", unsafe_allow_html=True)
+                    
+                    st.markdown("<p style='font-size: 13px; font-weight: bold; color: #94a3b8; margin: 10px 0 4px 0;'>🔗 ENLACE DE SEGUIMIENTO (OP.GG):</p>", unsafe_allow_html=True)
+                    with st.form(key=f"form_dashboard_opgg_{row['id']}"):
+                        col_o1, col_o2 = st.columns([3, 1])
+                        with col_o1:
+                            val_opgg = str(row['opgg']).strip() if has_opgg else ""
+                            input_dash_opgg = st.text_input("Enlace OP.GG", value=val_opgg, placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed", key=f"inp_opgg_{row['id']}")
+                        with col_o2:
+                            submit_dash_opgg = st.form_submit_button("Guardar OP.GG 🚀", use_container_width=True)
+                        if submit_dash_opgg:
+                            if input_dash_opgg.strip() != "" and not input_dash_opgg.startswith("http"):
+                                st.error("Ingresa una URL válida (debe iniciar con http:// o https://)")
+                            else:
+                                conn = get_connection()
+                                if conn:
+                                    try:
+                                        with conn.cursor() as cur:
+                                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (input_dash_opgg.strip() if input_dash_opgg.strip() else None, row['id']))
+                                            conn.commit()
+                                        st.cache_data.clear()
+                                        st.success("✅ OP.GG guardado con éxito.")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
+                                    finally:
+                                        conn.close()
         if st.button("🔄 Refrescar Datos", use_container_width=True):
             st.rerun()
     with tabs[1]:
@@ -535,7 +570,7 @@ if "t" in st.query_params:
     except Exception:
         st.error("Error de autenticación: Enlace de asignación inválido o corrupto.")
         st.stop()
-    df_info = run_query(f"SELECT booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, notas FROM pedidos WHERE id = {id_pedido}")
+    df_info = run_query(f"SELECT booster_nombre, user_pass, elo_inicial, fecha_inicio, fecha_limite, notas, opgg FROM pedidos WHERE id = {id_pedido}")
     if df_info.empty:
         st.error("Error: El pedido solicitado no existe en la base de datos.")
         st.stop()
@@ -547,6 +582,13 @@ if "t" in st.query_params:
     notas_pedido = df_info.iloc[0].get('notas', '')
     if pd.isna(notas_pedido) or str(notas_pedido).strip() == "": notas_pedido = "Ninguna"
     else: notas_pedido = str(notas_pedido).strip()
+    
+    opgg_actual = df_info.iloc[0].get('opgg', '')
+    if pd.isna(opgg_actual) or opgg_actual is None:
+        opgg_actual = ""
+    else:
+        opgg_actual = str(opgg_actual).strip()
+
     dias_restantes_opgg = "N/A"
     try:
         if pd.notna(fecha_inicio_str) and str(fecha_inicio_str).strip() != "":
@@ -558,8 +600,6 @@ if "t" in st.query_params:
         else: fecha_limite_str = "No definida"
     except: fecha_limite_str = "No definida"
     
-    # --- Contador de cuentas eliminado por solicitud ---
-    
     dias_restantes = "N/A"; fecha_limite_ped_ui = "No asignada"
     try:
         if fecha_limite_ped != "":
@@ -570,63 +610,74 @@ if "t" in st.query_params:
     except: pass
     st.markdown("""
 <style>
-.card { background: linear-gradient(145deg, #0d0d12, #121218); border-radius: 15px; padding: 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); border: 1px solid #1f1f2e; text-align: center; margin-bottom: 25px; transition: transform 0.3s, border-color 0.3s; }
-.card:hover { border-color: #4a4a6a; transform: translateY(-5px); }
-.title_box { color: #e2e8f0; font-size: 32px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 2px 5px rgba(0,0,0,0.5);}
-.subtitle { color: #64748b; font-size: 17px; margin-bottom: 25px; letter-spacing: 2px; font-weight: bold; text-transform: uppercase;}
-.info-box { background-color: #12121a; border-radius: 12px; padding: 18px 20px; margin: 12px 0; display: flex; flex-direction: column; border: 1px solid #1f1f2e; border-left: 5px solid #475569; text-align: left;}
-.info-box .label { color: #64748b; font-size: 13px; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
-.info-box .value { color: #f8fafc; font-size: 20px; font-weight: 700; margin-top: 5px; }
-.alert-box { background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 15px; color: #fbbf24; font-weight: 800; margin: 25px 0 10px 0; }
-.earnings-badge { background: #1e293b; color: #94a3b8; padding: 10px 20px; border-radius: 30px; font-size: 16px; font-weight: 900; display: inline-block; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; border: 1px solid #334155; }
-div[data-testid="stForm"] { background: #0d0d12; border: 1px solid #1f1f2e; border-radius: 12px; padding: 25px; }
-button[kind="primaryFormSubmit"] { background-color: #1e293b !important; color: #cbd5e1 !important; font-weight: 900 !important; font-size: 18px !important; text-transform: uppercase !important; letter-spacing: 1px !important; border-radius: 8px !important; border: 1px solid #475569 !important; transition: 0.3s !important; }
-button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; transform: scale(1.02); color: #f8fafc !important; border-color: #64748b !important; }
+.card { background: linear-gradient(145deg, #0d0d12, #121218); border-radius: 15px; padding: 20px 25px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); border: 1px solid #1f1f2e; text-align: center; margin-bottom: 15px; transition: transform 0.3s, border-color 0.3s; }
+.card:hover { border-color: #4a4a6a; transform: translateY(-3px); }
+.title_box { color: #e2e8f0; font-size: 26px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 2px 5px rgba(0,0,0,0.5);}
+.info-box { background-color: #12121a; border-radius: 10px; padding: 12px 16px; margin: 8px 0; display: flex; flex-direction: column; border: 1px solid #1f1f2e; border-left: 5px solid #475569; text-align: left;}
+.info-box .label { color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
+.info-box .value { color: #f8fafc; font-size: 18px; font-weight: 700; margin-top: 4px; }
+.alert-box { background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 10px; padding: 12px; color: #fbbf24; font-weight: 800; margin: 15px 0 10px 0; text-align: left; }
+div[data-testid="stForm"] { background: #0d0d12; border: 1px solid #1f1f2e; border-radius: 12px; padding: 20px; margin-bottom: 15px; }
+button[kind="primaryFormSubmit"] { background-color: #1e293b !important; color: #cbd5e1 !important; font-weight: 900 !important; font-size: 16px !important; text-transform: uppercase !important; letter-spacing: 1px !important; border-radius: 8px !important; border: 1px solid #475569 !important; transition: 0.3s !important; }
+button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; transform: scale(1.01); color: #f8fafc !important; border-color: #64748b !important; }
 </style>
 """, unsafe_allow_html=True)
-    # Boton de volver eliminado (Uso de nueva pestaña)
+    
+    # 1. Cabecera principal con Título y Credenciales al tope
     st.markdown(f"""
 <div class="card">
-<div class="title_box" style="margin-bottom: 25px; margin-top: 15px;">Área Operativa 🏆</div>
-<div class="info-box">
-<div class="label">👤 BOOSTER</div>
-<div class="value">Cuenta asignada a <b>{booster_asignado}</b></div>
-</div>
+<div class="title_box" style="margin-bottom: 12px; margin-top: 5px;">Área Operativa 🏆</div>
 <div class="info-box">
 <div class="label">🔑 CREDENCIALES DE ACCESO:</div>
-<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 20px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
+<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 18px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
 </div>
-<div class="info-box">
-<div class="label">📝 NOTAS DEL PEDIDO:</div>
-<div class="value" style="color: #e2e8f0; font-size: 16px;">{notas_pedido}</div>
-</div>
-<div class="info-box" style="border-left-color: #f59e0b;">
-  <div class="label">⏳ ENTREGA CUENTA</div>
-  <div class="value" style="color: #fbbf24; font-size: 20px;">{dias_restantes} &nbsp;<span style="color:#64748b; font-size: 14px;">(Límite: {fecha_limite_ped_ui})</span></div>
-</div>
-<div class="alert-box">
-⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
-<span style="color:#d97706; font-size: 14px; margin-top: 5px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
-</div>
-<div style="margin-top: 25px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
 </div>
 """, unsafe_allow_html=True)
+
+    # 2. Formulario para registrar / actualizar OP.GG (AL INICIO, VISIBLE SIN SCROLL)
     with st.form("form_booster"):
-        st.markdown("<p style='font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 5px;'>🔗 Enlace de Seguimiento de Partidas (OP.GG):</p>", unsafe_allow_html=True)
-        opgg_input = st.text_input("Enlace de seguimiento:", placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
-        if st.form_submit_button("Registrar OP.GG 🚀"):
+        st.markdown("<p style='font-size: 17px; font-weight: 800; color: #2ecc71; margin-bottom: 8px;'>🔗 Registrar Enlace de Seguimiento (OP.GG):</p>", unsafe_allow_html=True)
+        opgg_input = st.text_input("Enlace de seguimiento:", value=opgg_actual, placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
+        btn_txt = "Actualizar OP.GG 🚀" if opgg_actual else "Registrar OP.GG 🚀"
+        if st.form_submit_button(btn_txt, use_container_width=True):
             if opgg_input.strip() == "" or not opgg_input.startswith("http"):
-                st.error("Validación fallida: Registra una URL válida.")
+                st.error("Validación fallida: Registra una URL válida (ej: https://www.op.gg/...).")
             else:
                 conn = get_connection()
                 if conn:
                     try:
                         with conn.cursor() as cur:
-                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input, id_pedido))
+                            cur.execute("UPDATE pedidos SET opgg = %s WHERE id = %s", (opgg_input.strip(), id_pedido))
                             conn.commit()
-                        st.success("¡Registro completado exitosamente! 💪")
+                        st.cache_data.clear()
+                        st.success("¡Registro de OP.GG guardado exitosamente! 💪")
+                        time.sleep(1)
+                        st.rerun()
                     except Exception as e: st.error(f"Error: {e}")
                     finally: conn.close()
+
+    # 3. Detalles secundarios de la cuenta debajo del formulario
+    st.markdown(f"""
+<div class="card">
+<div class="info-box">
+<div class="label">👤 BOOSTER ASIGNADO</div>
+<div class="value" style="font-size: 16px;">Cuenta a cargo de <b>{booster_asignado}</b></div>
+</div>
+<div class="info-box">
+<div class="label">📝 NOTAS DEL PEDIDO:</div>
+<div class="value" style="color: #e2e8f0; font-size: 15px;">{notas_pedido}</div>
+</div>
+<div class="info-box" style="border-left-color: #f59e0b;">
+  <div class="label">⏳ ENTREGA CUENTA</div>
+  <div class="value" style="color: #fbbf24; font-size: 17px;">{dias_restantes} &nbsp;<span style="color:#64748b; font-size: 13px;">(Límite: {fecha_limite_ped_ui})</span></div>
+</div>
+<div class="alert-box">
+⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
+<span style="color:#d97706; font-size: 13px; margin-top: 4px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
+</div>
+<div style="margin-top: 15px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
+</div>
+""", unsafe_allow_html=True)
     st.stop()
 
     st.stop()

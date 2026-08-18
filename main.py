@@ -1447,6 +1447,8 @@ class PerezBoostApp(ctk.CTk):
                 bp_val = sys_bp if var_ped.get() else 0.0
                 bw_val = sys_bw if (var_wr.get() and wr_porc >= 60.0) else 0.0
                 
+                n = c_base - s_base - bp_val - (bw_val if not es_rank else 0.0)
+                
                 e_neto.configure(state="normal")
                 e_neto.delete(0, 'end')
                 e_neto.insert(0, f"{n:.2f}")
@@ -1490,7 +1492,7 @@ class PerezBoostApp(ctk.CTk):
                 bp_total = sys_bp if var_ped.get() else 0.0
                 bw_total = sys_bw if (var_wr.get() and val_wr >= 60.0) else 0.0
                 
-                # Lógica: BW pagado por cliente, BP pagado por empresa
+                # Lógica: BW pagado por cliente (sólo si está en ranking), BP pagado por empresa
                 # Redirección según ranking:
                 val_bp_bote = bp_total if es_rank else 0.0
                 val_bw_bote = bw_total if es_rank else 0.0
@@ -1498,9 +1500,9 @@ class PerezBoostApp(ctk.CTk):
                 pago_extra_booster = (bp_total if not es_rank else 0.0) + (bw_total if not es_rank else 0.0)
                 
                 # Resultados finales
-                val_pago_cliente = val_cobro_base + bw_total
+                val_pago_cliente = val_cobro_base + (bw_total if es_rank else 0.0)
                 val_staff_final = val_staff_base + pago_extra_booster
-                val_neto = val_cobro_base - val_staff_base - bp_total
+                val_neto = val_cobro_base - val_staff_base - bp_total - (bw_total if not es_rank else 0.0)
 
                 conn = sqlite3.connect("perezboost.db")
                 cur = conn.cursor()
@@ -2497,8 +2499,8 @@ class PerezBoostApp(ctk.CTk):
                     # Lógica de Redirección de Bonos
                     es_rank = var_ranking.get()
                     
-                    # Lo que el cliente paga (Base + Bono WR si aplica)
-                    p_cliente = p_cli_base + aporte_wr
+                    # Lo que el cliente paga (Base + Bono WR si aplica sólo si está en ranking)
+                    p_cliente = p_cli_base + (aporte_wr if es_rank else 0.0)
                     
                     # Lo que va al Bote (Ranking)
                     aporte_ped_final = aporte_ped if es_rank else 0.0
@@ -2508,7 +2510,7 @@ class PerezBoostApp(ctk.CTk):
                     extra_staff = (aporte_ped if not es_rank else 0.0) + (aporte_wr if not es_rank else 0.0)
                     
                     p_booster = (p_cli_base - g_per_base) + ajuste + extra_staff
-                    g_perez = (g_per_base - aporte_ped) - ajuste
+                    g_perez = (g_per_base - aporte_ped) - ajuste - (aporte_wr if not es_rank else 0.0)
                     
                     aporte_ped = aporte_ped_final
                     aporte_wr = aporte_wr_final
