@@ -360,17 +360,8 @@ def render_booster_dashboard(booster_name):
                 has_opgg = pd.notna(row['opgg']) and str(row['opgg']).strip() != ""
                 exp_label = f"🎮 {row['user_pass']} {'✅ (OP.GG Registrado)' if has_opgg else '⚠️ (Falta OP.GG)'}"
                 with st.expander(exp_label, expanded=True):
-                    ca, cb = st.columns([3, 1])
-                    with ca:
-                        st.write(f"**Elo / Objetivo:** {row['elo_inicial']}")
-                        v_notas = row['notas'] if pd.notna(row['notas']) and str(row['notas']).strip() != "" else "Ninguna"
-                        st.info(f"📝 **Notas:** {v_notas}")
-                    with cb:
-                        st.write(f"**Límite:** {row['fecha_limite']}")
-                        token = base64.urlsafe_b64encode(f"perez-{row['id']}".encode()).decode()
-                        st.markdown(f"<a href='/?t={token}' target='_blank' style='text-decoration:none;'><button style='width:100%; cursor:pointer; background:#334155; border:1px solid #475569; color:#f8fafc; padding:8px; border-radius:5px; font-weight:bold; font-size:12px;'>VER FICHA COMPLETA</button></a>", unsafe_allow_html=True)
-                    
-                    st.markdown("<p style='font-size: 13px; font-weight: bold; color: #94a3b8; margin: 10px 0 4px 0;'>🔗 ENLACE DE SEGUIMIENTO (OP.GG):</p>", unsafe_allow_html=True)
+                    # 1. CASILLA ENLACE OP.GG AL INICIO (HASTA ARRIBA)
+                    st.markdown("<p style='font-size: 13px; font-weight: bold; color: #2ecc71; margin: 0 0 6px 0;'>🔗 REGISTRAR / EDITAR OP.GG DE LA CUENTA:</p>", unsafe_allow_html=True)
                     with st.form(key=f"form_dashboard_opgg_{row['id']}"):
                         col_o1, col_o2 = st.columns([3, 1])
                         with col_o1:
@@ -396,6 +387,19 @@ def render_booster_dashboard(booster_name):
                                         st.error(f"Error: {e}")
                                     finally:
                                         conn.close()
+                    
+                    st.divider()
+                    
+                    # 2. RESTO DE INFORMACIÓN DE LA CUENTA ABAJO
+                    ca, cb = st.columns([3, 1])
+                    with ca:
+                        st.write(f"**Elo / Objetivo:** {row['elo_inicial']}")
+                        v_notas = row['notas'] if pd.notna(row['notas']) and str(row['notas']).strip() != "" else "Ninguna"
+                        st.info(f"📝 **Notas:** {v_notas}")
+                    with cb:
+                        st.write(f"**Límite:** {row['fecha_limite']}")
+                        token = base64.urlsafe_b64encode(f"perez-{row['id']}".encode()).decode()
+                        st.markdown(f"<a href='/?t={token}' target='_blank' style='text-decoration:none;'><button style='width:100%; cursor:pointer; background:#334155; border:1px solid #475569; color:#f8fafc; padding:8px; border-radius:5px; font-weight:bold; font-size:12px;'>VER FICHA COMPLETA</button></a>", unsafe_allow_html=True)
         if st.button("🔄 Refrescar Datos", use_container_width=True):
             st.rerun()
     with tabs[1]:
@@ -454,7 +458,7 @@ v_param = st.query_params.get("v", "")
 k_param = st.query_params.get("k", "")
 b_param = st.query_params.get("b", "")
 p_param = st.query_params.get("p", "")
-is_staff_portal = (v_param == "staff")
+is_staff_portal = (v_param in ["staff", "booster"])
 is_token_view = ("t" in st.query_params)
 is_ranking_view = (st.query_params.get("view", "") == "ranking")
 # El portal de Admin solo se activa si no es staff y no es una zona neutral (token/ranking)
@@ -623,20 +627,16 @@ button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; t
 </style>
 """, unsafe_allow_html=True)
     
-    # 1. Cabecera principal con Título y Credenciales al tope
-    st.markdown(f"""
-<div class="card">
-<div class="title_box" style="margin-bottom: 12px; margin-top: 5px;">Área Operativa 🏆</div>
-<div class="info-box">
-<div class="label">🔑 CREDENCIALES DE ACCESO:</div>
-<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 18px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
-</div>
+    # 1. Título principal
+    st.markdown("""
+<div style="text-align: center; margin-bottom: 10px; margin-top: 5px;">
+    <h2 style="color: #e2e8f0; font-weight: 900; letter-spacing: 2px; margin: 0; text-transform: uppercase; font-size: 24px;">Área Operativa 🏆</h2>
 </div>
 """, unsafe_allow_html=True)
 
-    # 2. Formulario para registrar / actualizar OP.GG (AL INICIO, VISIBLE SIN SCROLL)
+    # 2. ENLACE DE SEGUIMIENTO OP.GG (AL INICIO, HASTA ARRIBA DE TODO)
     with st.form("form_booster"):
-        st.markdown("<p style='font-size: 17px; font-weight: 800; color: #2ecc71; margin-bottom: 8px;'>🔗 Registrar Enlace de Seguimiento (OP.GG):</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 17px; font-weight: 800; color: #2ecc71; margin-bottom: 8px;'>🔗 ENLACE DE SEGUIMIENTO (OP.GG):</p>", unsafe_allow_html=True)
         opgg_input = st.text_input("Enlace de seguimiento:", value=opgg_actual, placeholder="https://www.op.gg/summoners/lan/...", label_visibility="collapsed")
         btn_txt = "Actualizar OP.GG 🚀" if opgg_actual else "Registrar OP.GG 🚀"
         if st.form_submit_button(btn_txt, use_container_width=True):
@@ -656,9 +656,13 @@ button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; t
                     except Exception as e: st.error(f"Error: {e}")
                     finally: conn.close()
 
-    # 3. Detalles secundarios de la cuenta debajo del formulario
+    # 3. RESTO DE LA INFORMACIÓN DE LA CUENTA (ABAJO DEL LINK OP.GG)
     st.markdown(f"""
 <div class="card">
+<div class="info-box">
+<div class="label">🔑 CREDENCIALES DE ACCESO:</div>
+<div class="value" style="color: #9cdcfe; font-family: monospace; font-size: 18px;">{user_pass_asignado} &nbsp;—&nbsp; <span style="color:#cecece;">{elo_llevar}</span></div>
+</div>
 <div class="info-box">
 <div class="label">👤 BOOSTER ASIGNADO</div>
 <div class="value" style="font-size: 16px;">Cuenta a cargo de <b>{booster_asignado}</b></div>
@@ -675,7 +679,18 @@ button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; t
 ⚠️ Recuerda adjuntar el OP.GG antes del {fecha_limite_str} para evitar penalizaciones.<br>
 <span style="color:#d97706; font-size: 13px; margin-top: 4px; display: inline-block;">Si tienes algún inconveniente con el boost, escríbeme.</span>
 </div>
-<div style="margin-top: 15px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
+
+<!-- 4. ESPACIO DESTACADO PARA IR AL PORTAL DE BOOSTER -->
+<div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #1f1f2e; text-align: center;">
+  <p style="color: #94a3b8; font-size: 13px; font-weight: bold; margin-bottom: 8px;">⚡ PORTAL DE BOOSTER / STAFF</p>
+  <a href="/?v=booster" target="_blank" style="text-decoration: none;">
+    <button style="width: 100%; cursor: pointer; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155; color: #58a6ff; padding: 12px; border-radius: 8px; font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s;">
+      👨‍💻 Entrar a mi Portal de Booster (/booster)
+    </button>
+  </a>
+</div>
+
+<div style="margin-top: 20px; color: #475569; font-size: 11px; font-weight: bold; letter-spacing: 2px;">PEREZBOOST - NA ©</div>
 </div>
 """, unsafe_allow_html=True)
     st.stop()
