@@ -665,7 +665,7 @@ button[kind="primaryFormSubmit"]:hover { background-color: #334155 !important; t
 </div>
 <div class="info-box">
 <div class="label">👤 BOOSTER ASIGNADO</div>
-<div class="value" style="font-size: 16px;">Cuenta a cargo de <b>{booster_asignado}</b></div>
+<div class="value" style="font-size: 16px;"><b>{booster_asignado}</b></div>
 </div>
 <div class="info-box">
 <div class="label">📝 NOTAS DEL PEDIDO:</div>
@@ -983,6 +983,116 @@ with tab_reportes:
             st.dataframe(df_mostrar, height=380, use_container_width=True)
     else:
         st.info(f"No hay pedidos terminados para el mes de {mes_sel}.")
+
+    st.divider()
+    st.subheader("🛠️ Modificar Estado / Datos de Pedido")
+    st.caption("Corrige o modifica el estado de un pedido (Terminado, En progreso, Abandonado, Baneada) y sus detalles sin necesidad de ingresar a la base de datos.")
+
+    query_edicion = """
+        SELECT id, booster_nombre, user_pass, elo_inicial, elo_final, wr, estado, 
+               pago_cliente, pago_booster, ganancia_empresa, fecha_fin_real, pago_realizado, notas 
+        FROM pedidos 
+        ORDER BY id DESC 
+        LIMIT 100
+    """
+    df_edicion_pedidos = run_query(query_edicion)
+    if not df_edicion_pedidos.empty:
+        opciones_ed = [f"#{row.id} | {row.booster_nombre} | {row.user_pass} | Estado: {row.estado}" for row in df_edicion_pedidos.itertuples()]
+        ped_sel = st.selectbox("🔍 Selecciona el Pedido:", options=opciones_ed, key="sel_mod_ped_rep")
+        
+        if ped_sel:
+            idx = opciones_ed.index(ped_sel)
+            fila_ped = df_edicion_pedidos.iloc[idx]
+            id_ped_edit = int(fila_ped['id'])
+            
+            with st.form(key=f"form_mod_ped_{id_ped_edit}"):
+                c_est1, c_est2, c_est3 = st.columns(3)
+                estados_lista = ["Terminado", "En progreso"]
+                est_actual_val = str(fila_ped['estado']).strip()
+                idx_est = 0
+                for i_e, e_nom in enumerate(estados_lista):
+                    if e_nom.lower() == est_actual_val.lower():
+                        idx_est = i_e
+                        break
+                        
+                with c_est1:
+                    nuevo_estado = st.selectbox("Estado del Pedido:", estados_lista, index=idx_est)
+                with c_est2:
+                    df_boosters_all = run_query("SELECT nombre FROM boosters ORDER BY nombre")
+                    boosters_nombres = df_boosters_all['nombre'].dropna().tolist() if not df_boosters_all.empty else []
+                    idx_b = boosters_nombres.index(fila_ped['booster_nombre']) if fila_ped['booster_nombre'] in boosters_nombres else 0
+                    nuevo_booster = st.selectbox("Staff Asignado:", boosters_nombres if boosters_nombres else [fila_ped['booster_nombre']], index=idx_b)
+                with c_est3:
+                    nuevo_elo = st.text_input("Elo Final:", value=str(fila_ped['elo_final'] if pd.notna(fila_ped['elo_final']) and str(fila_ped['elo_final']).strip() != "" else (fila_ped['elo_inicial'] or "")))
+                
+                c_val1, c_val2, c_val3, c_val4 = st.columns(4)
+                with c_val1:
+                    nuevo_wr = st.number_input("Win Rate (%):", min_value=0.0, max_value=100.0, value=float(clean_num(fila_ped['wr'])), step=0.5)
+                with c_val2:
+                    nuevo_p_cli = st.number_input("Cobro Cliente ($):", min_value=0.0, value=float(clean_num(fila_ped['pago_cliente'])), step=1.0)
+                with c_val3:
+                    nuevo_p_boo = st.number_input("Pago Staff ($):", min_value=0.0, value=float(clean_num(fila_ped['pago_booster'])), step=1.0)
+                with c_val4:
+                    pago_realizado_actual = bool(int(fila_ped['pago_realizado'] or 0) == 1)
+                    nuevo_pago_realizado = st.checkbox("Pago Liquidado", value=pago_realizado_actual, help="Indica si el booster ya fue liquidado por este pedido")
+                
+                btn_guardar_mod = st.form_submit_button("💾 Guardar Cambios de Pedido", type="primary", use_container_width=True)
+                
+                if btn_guardar_mod:
+                    conn = get_connection()
+                    if conn:
+                        try:
+                            with conn.cursor() as cur:
+                                neto_calc = nuevo_p_cli - nuevo_p_boo
+                                u_pass = str(fila_ped['user_pass'])
+                                elo_init = str(fila_ped['elo_inicial'] if pd.notna(fila_ped['elo_inicial']) else 'Emerald/Plat')
+                                notas_p = str(fila_ped['notas'] if pd.notna(fila_ped['notas']) else 'FRESH')
+                                p_realizado_int = 1 if nuevo_pago_realizado else 0
+                                
+                                if nuevo_estado == 'En progreso':
+                                    cur.execute("DELETE FROM inventario WHERE user_pass = %s", (u_pass,))
+                                    cur.execute("""
+                                        UPDATE pedidos 
+                                        SET estado = %s, booster_nombre = %s, elo_final = %s, wr = %s, 
+                                            pago_cliente = %s, pago_booster = %s, ganancia_empresa = %s, pago_realizado = %s
+                                        WHERE id = %s
+                                    """, (nuevo_estado, nuevo_booster, nuevo_elo, nuevo_wr, nuevo_p_cli, nuevo_p_boo, neto_calc, p_realizado_int, id_ped_edit))
+                                elif nuevo_estado == 'Abandonado':
+                                    cur.execute("SELECT id FROM inventario WHERE user_pass = %s", (u_pass,))
+                                    if not cur.fetchone():
+                                        cur.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (%s, %s, %s)", (u_pass, elo_init, notas_p))
+                                    cur.execute("""
+                                        UPDATE pedidos 
+                                        SET estado = %s, booster_nombre = %s, elo_final = %s, wr = %s, 
+                                            pago_cliente = %s, pago_booster = %s, ganancia_empresa = %s, pago_realizado = %s
+                                        WHERE id = %s
+                                    """, (nuevo_estado, nuevo_booster, nuevo_elo, nuevo_wr, nuevo_p_cli, nuevo_p_boo, neto_calc, p_realizado_int, id_ped_edit))
+                                elif nuevo_estado == 'Baneada':
+                                    cur.execute("DELETE FROM inventario WHERE user_pass = %s", (u_pass,))
+                                    cur.execute("""
+                                        UPDATE pedidos 
+                                        SET estado = %s, booster_nombre = %s, elo_final = %s, wr = %s, 
+                                            pago_cliente = %s, pago_booster = %s, ganancia_empresa = %s, pago_realizado = %s
+                                        WHERE id = %s
+                                    """, (nuevo_estado, nuevo_booster, 'BANEADA', nuevo_wr, nuevo_p_cli, nuevo_p_boo, neto_calc, p_realizado_int, id_ped_edit))
+                                else:  # Terminado
+                                    cur.execute("DELETE FROM inventario WHERE user_pass = %s", (u_pass,))
+                                    cur.execute("""
+                                        UPDATE pedidos 
+                                        SET estado = %s, booster_nombre = %s, elo_final = %s, wr = %s, 
+                                            pago_cliente = %s, pago_booster = %s, ganancia_empresa = %s, pago_realizado = %s
+                                        WHERE id = %s
+                                    """, (nuevo_estado, nuevo_booster, nuevo_elo, nuevo_wr, nuevo_p_cli, nuevo_p_boo, neto_calc, p_realizado_int, id_ped_edit))
+                                
+                                conn.commit()
+                            st.success(f"✅ Pedido #{id_ped_edit} actualizado correctamente a '{nuevo_estado}'.")
+                            time.sleep(1)
+                            st.cache_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al actualizar: {e}")
+                        finally:
+                            conn.close()
 
 # ==============================================================================
 # TAB 2: GITANALYTICS

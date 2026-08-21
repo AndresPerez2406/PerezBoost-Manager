@@ -16,7 +16,15 @@ class DiscordNotifier:
         try:
             if not self.webhook_url or self.webhook_url.strip() == "":
                 return
+            import time
             response = requests.post(self.webhook_url, json=payload, timeout=10)
+            if response.status_code == 429:
+                try:
+                    data = response.json()
+                    retry_after = float(data.get("retry_after", 0.5)) + 0.1
+                    time.sleep(retry_after)
+                    response = requests.post(self.webhook_url, json=payload, timeout=10)
+                except: pass
             if response.status_code not in [200, 204]:
                 print(f"Discord devolvió error {response.status_code}: {response.text}")
         except Exception as e:

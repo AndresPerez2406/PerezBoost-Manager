@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 import customtkinter as ctk
 import pandas as pd
 import threading
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from core.discord_handler import COLOR_DANGER, DiscordNotifier, COLOR_SUCCESS, COLOR_INFO, COLOR_WARNING
 from core.cloud_sync import logica_subir_a_nube, logica_bajar_de_nube
 from core.database import (
@@ -804,15 +808,25 @@ class PerezBoostApp(ctk.CTk):
         def proceso_subida():
             try:
                 import psycopg2
-                from dotenv import load_dotenv
-                import os
-                load_dotenv(".env")
+                from core.cloud_sync import CLOUD_URL
                 
-                url_db = os.getenv("DATABASE_URL")
-                if url_db:
-
-                    conn_pg = psycopg2.connect(url_db)
+                if CLOUD_URL:
+                    conn_pg = psycopg2.connect(CLOUD_URL, connect_timeout=8)
                     cur_pg = conn_pg.cursor()
+                    cur_pg.execute("""
+                        CREATE TABLE IF NOT EXISTS pedidos (
+                            id SERIAL PRIMARY KEY, booster_id INTEGER, booster_nombre VARCHAR(255),
+                            user_pass VARCHAR(255), elo_inicial VARCHAR(50), fecha_inicio VARCHAR(50),
+                            fecha_limite VARCHAR(50), estado VARCHAR(50), elo_final VARCHAR(50),
+                            wr DOUBLE PRECISION, fecha_fin_real VARCHAR(50),
+                            pago_cliente DOUBLE PRECISION, pago_booster DOUBLE PRECISION,
+                            ganancia_empresa DOUBLE PRECISION, ajuste_valor DOUBLE PRECISION DEFAULT 0,
+                            pago_realizado INTEGER DEFAULT 0,
+                            opgg TEXT, notas TEXT,
+                            bote_pedido DOUBLE PRECISION DEFAULT 0, bote_wr DOUBLE PRECISION DEFAULT 0,
+                            cuenta_ranking INTEGER DEFAULT 1
+                        );
+                    """)
                     cur_pg.execute("SELECT id, opgg FROM pedidos WHERE opgg IS NOT NULL AND opgg != ''")
                     links_nube = cur_pg.fetchall()
                     conn_pg.close()
@@ -1352,7 +1366,7 @@ class PerezBoostApp(ctk.CTk):
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr, fecha_fin_real, pago_realizado, ganancia_empresa, bote_pedido, bote_wr, cuenta_ranking
+                SELECT booster_nombre, elo_final, pago_cliente, pago_booster, user_pass, wr, fecha_fin_real, pago_realizado, ganancia_empresa, bote_pedido, bote_wr, cuenta_ranking, estado, elo_inicial, notas
                 FROM pedidos WHERE id = ?
             """, (id_pedido,))
             datos_db = cur.fetchone()
@@ -1380,10 +1394,13 @@ class PerezBoostApp(ctk.CTk):
         if not datos_db: return
 
         try:
-            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr, cuenta_ranking = datos_db
+            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr, cuenta_ranking, estado_actual, elo_inicial, notas_actual = datos_db
         except ValueError:
-            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr = datos_db
-            cuenta_ranking = 1
+            staff_actual, elo_actual, pago_cli_actual, pago_staff_actual, user_pass, wr_actual, fecha_fin_actual, pago_actual, ganancia_actual, bote_ped, bote_wr = datos_db[:11]
+            cuenta_ranking = datos_db[11] if len(datos_db) > 11 else 1
+            estado_actual = datos_db[12] if len(datos_db) > 12 else "Terminado"
+            elo_inicial = datos_db[13] if len(datos_db) > 13 else "Emerald/Plat"
+            notas_actual = datos_db[14] if len(datos_db) > 14 else "FRESH"
 
         pago_cli_actual = float(pago_cli_actual or 0)
         pago_staff_actual = float(pago_staff_actual or 0)
@@ -1393,10 +1410,22 @@ class PerezBoostApp(ctk.CTk):
 
         v = ctk.CTkToplevel(self)
         v.title(f"Edición Pedido #{id_pedido}")
-        v.geometry("380x830")
+        v.geometry("400x900")
         v.attributes("-topmost", True)
 
         ctk.CTkLabel(v, text=f"Cuenta: {user_pass}", font=("Arial", 12, "bold"), text_color="#3498db").pack(pady=(15, 5))
+
+        # Selector de Estado del Pedido
+        ctk.CTkLabel(v, text="Estado del Pedido:", font=("Arial", 11, "bold")).pack(pady=(5,0))
+        estados_lista = ["Terminado", "En progreso"]
+        combo_estado = ctk.CTkOptionMenu(v, values=estados_lista, width=250)
+        estado_defecto = "Terminado"
+        for est in estados_lista:
+            if est.lower() == str(estado_actual).lower():
+                estado_defecto = est
+                break
+        combo_estado.set(estado_defecto)
+        combo_estado.pack(pady=5)
 
         ctk.CTkLabel(v, text="Staff:", font=("Arial", 11, "bold")).pack(pady=(5,0))
         combo_staff = ctk.CTkOptionMenu(v, values=lista_staff, width=250)
@@ -1479,8 +1508,8 @@ class PerezBoostApp(ctk.CTk):
 
         def guardar():
             try:
+                nuevo_estado = combo_estado.get()
                 nuevo_estado_pago = 1 if var_pago.get() else 0
-                nuevo_estado_rank = 1 
                 nueva_fecha = e_fecha.get().strip()
                 if not nueva_fecha: nueva_fecha = None
 
@@ -1507,19 +1536,33 @@ class PerezBoostApp(ctk.CTk):
                 conn = sqlite3.connect("perezboost.db")
                 cur = conn.cursor()
 
+                # Consistencia de inventario según el nuevo estado
+                if nuevo_estado == 'En progreso':
+                    cur.execute("DELETE FROM inventario WHERE user_pass = ?", (user_pass,))
+                elif nuevo_estado == 'Abandonado':
+                    cur.execute("SELECT id FROM inventario WHERE user_pass = ?", (user_pass,))
+                    if not cur.fetchone():
+                        cur.execute("INSERT INTO inventario (user_pass, elo_tipo, descripcion) VALUES (?, ?, ?)",
+                                    (user_pass, elo_inicial or combo_elo.get(), notas_actual or "FRESH"))
+                elif nuevo_estado == 'Baneada':
+                    cur.execute("DELETE FROM inventario WHERE user_pass = ?", (user_pass,))
+                else:  # Terminado
+                    cur.execute("DELETE FROM inventario WHERE user_pass = ?", (user_pass,))
+
                 cur.execute("""
                     UPDATE pedidos 
-                    SET booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, ganancia_empresa=?, fecha_fin_real=?, pago_realizado=?, bote_pedido=?, bote_wr=?, cuenta_ranking=?
+                    SET estado=?, booster_nombre=?, elo_final=?, wr=?, pago_cliente=?, pago_booster=?, ganancia_empresa=?, fecha_fin_real=?, pago_realizado=?, bote_pedido=?, bote_wr=?, cuenta_ranking=?
                     WHERE id=?
-                """, (combo_staff.get(), combo_elo.get(), val_wr, val_pago_cliente, val_staff_final, val_neto, nueva_fecha, nuevo_estado_pago, val_bp_bote, val_bw_bote, (1 if es_rank else 0), id_pedido))
+                """, (nuevo_estado, combo_staff.get(), combo_elo.get(), val_wr, val_pago_cliente, val_staff_final, val_neto, nueva_fecha, nuevo_estado_pago, val_bp_bote, val_bw_bote, (1 if es_rank else 0), id_pedido))
 
-                conn.commit(); conn.close()
-                
+                conn.commit()
+                conn.close()
 
+                registrar_log("ESTADO_MODIFICADO", f"Pedido #{id_pedido} ({user_pass}) actualizado a estado '{nuevo_estado}'.")
 
                 v.destroy()
                 self.actualizar_analitica()
-                messagebox.showinfo("Éxito", f"Registro actualizado.\nNeto Real: ${val_neto:.2f}")
+                messagebox.showinfo("Éxito", f"Registro actualizado.\nNuevo Estado: {nuevo_estado}\nNeto Real: ${val_neto:.2f}")
             except Exception as e: messagebox.showerror("Error", f"Error al guardar: {e}")
 
         ctk.CTkButton(v, text="💾 Guardar Cambios", fg_color="#27ae60", hover_color="#2ecc71", height=40, width=200, command=guardar).pack(pady=(15, 10))
@@ -1625,10 +1668,6 @@ class PerezBoostApp(ctk.CTk):
 
     def dibujar_grafico_financiero(self, total_perez, total_staff, total_bote, nombre_filtro):
         for widget in self.graficos_frame.winfo_children(): widget.destroy()
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        import matplotlib
-        matplotlib.use("TkAgg")
 
         plt.close('all')
         plt.rcParams.update({

@@ -35,7 +35,8 @@ dist/
 *.spec
 *.exe
 
-# --- Configuración de IDEs ---
+# --- Configuración de IDEs & Scratch ---
 .vscode/
 .idea/
 Thumbs.db
+scratch/

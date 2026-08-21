@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PerezBoost Pro — SaaS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+  <div id="app-container">
+    <!-- =====================================================================
+         SIDEBAR NAVIGATION
+         ===================================================================== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-header">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-info">
+          <h2>PEREZBOOST</h2>
+          <span>PRO SAAS • V16</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <!-- Admin Routes -->
+        <a class="nav-item active admin-only" data-target="dashboard">
+          <span>📊</span>
+          <span>Dashboard</span>
+        </a>
+        <a class="nav-item admin-only" data-target="pedidos">
+          <span>🎮</span>
+          <span>Pedidos & Tracking</span>
+        </a>
+        <a class="nav-item admin-only" data-target="inventario">
+          <span>📦</span>
+          <span>Stock de Cuentas</span>
+        </a>
+        <a class="nav-item admin-only" data-target="ranking">
+          <span>🏆</span>
+          <span>Leaderboard & Bote</span>
+        </a>
+        <a class="nav-item admin-only" data-target="finanzas">
+          <span>💰</span>
+          <span>Finanzas & Binance</span>
+        </a>
+
+        <!-- Booster Exclusive Route -->
+        <a class="nav-item booster-only" data-target="booster-portal" style="display:none;">
+          <span>🎯</span>
+          <span>Mis Pedidos & OP.GG</span>
+        </a>
+      </nav>
+
+      <div class="user-profile-widget">
+        <div class="user-meta">
+          <div class="user-avatar" id="user-avatar-text">A</div>
+          <div class="user-details">
+            <h4 id="user-name-display">Administrador</h4>
+            <p id="user-role-display">Admin</p>
+          </div>
+        </div>
+        <button id="btn-logout" class="btn-logout" title="Cerrar sesión">
+          🚪
+        </button>
+      </div>
+    </aside>
+
+    <!-- =====================================================================
+         MAIN CONTENT VIEWS
+         ===================================================================== -->
+    <main class="main-content">
+
+      <!-- 1. DASHBOARD VIEW (ADMIN) -->
+      <section id="view-dashboard" class="view-section">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Dashboard Financiero</h1>
+            <p>Métricas consolidadas y rendimiento operativo en tiempo real.</p>
+          </div>
+        </header>
+
+        <div class="kpi-grid">
+          <div class="card kpi-card" style="--accent-color: var(--primary);">
+            <div class="kpi-header">
+              <span>Mi Neto Real</span>
+              <div class="kpi-icon">💵</div>
+            </div>
+            <div class="kpi-value" id="kpi-neto">$0.00</div>
+            <div class="kpi-meta">Ganancia neta acumulada</div>
+          </div>
+
+          <div class="card kpi-card" style="--accent-color: var(--indigo);">
+            <div class="kpi-header">
+              <span>Ventas Totales</span>
+              <div class="kpi-icon">📈</div>
+            </div>
+            <div class="kpi-value" id="kpi-ventas">$0.00</div>
+            <div class="kpi-meta">Ingresos brutos clientes</div>
+          </div>
+
+          <div class="card kpi-card" style="--accent-color: var(--gold);">
+            <div class="kpi-header">
+              <span>Bote Ranking</span>
+              <div class="kpi-icon">🏆</div>
+            </div>
+            <div class="kpi-value" id="kpi-bote">$0.00</div>
+            <div class="kpi-meta">Bote recolectado staff</div>
+          </div>
+
+          <div class="card kpi-card" style="--accent-color: var(--cyan);">
+            <div class="kpi-header">
+              <span>Billetera Binance</span>
+              <div class="kpi-icon">🪙</div>
+            </div>
+            <div class="kpi-value" id="kpi-binance">$0.00</div>
+            <div class="kpi-meta">Balance total USDT</div>
+          </div>
+
+          <div class="card kpi-card" style="--accent-color: var(--purple);">
+            <div class="kpi-header">
+              <span>Pedidos Activos</span>
+              <div class="kpi-icon">🎮</div>
+            </div>
+            <div class="kpi-value" id="kpi-activos">0</div>
+            <div class="kpi-meta">En progreso actual</div>
+          </div>
+
+          <div class="card kpi-card" style="--accent-color: #e67e22;">
+            <div class="kpi-header">
+              <span>Velocidad Media</span>
+              <div class="kpi-icon">⚡</div>
+            </div>
+            <div class="kpi-value" id="kpi-velocidad">0.0 d</div>
+            <div class="kpi-meta">Días promedio por orden</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 24px; height: 380px;">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Distribución Financiera Global</h3>
+          <div style="position: relative; height: 300px; width: 100%;">
+            <canvas id="financialChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. PEDIDOS VIEW (ADMIN) -->
+      <section id="view-pedidos" class="view-section" style="display:none;">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Gestión de Pedidos & Tracking</h1>
+            <p>Control operativo, modificación de estados y enlaces de OP.GG.</p>
+          </div>
+          <div class="header-actions">
+            <input type="text" id="pedidos-search" placeholder="🔍 Buscar por booster, elo, cuenta..." class="input-field" style="width: 260px;" />
+            <select id="pedidos-filter-estado" class="select-field">
+              <option value="Todos">Todos los Estados</option>
+              <option value="En progreso">En progreso</option>
+              <option value="Terminado">Terminado</option>
+              <option value="Abandonado">Abandonado</option>
+            </select>
+          </div>
+        </header>
+
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Booster / Staff</th>
+                  <th>Cuenta / División</th>
+                  <th>Estado</th>
+                  <th>Pago Cliente / Staff</th>
+                  <th>OP.GG</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="pedidos-tbody">
+                <!-- Dinámico -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. INVENTARIO VIEW (ADMIN) -->
+      <section id="view-inventario" class="view-section" style="display:none;">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Stock & Inventario de Cuentas</h1>
+            <p>Disponibilidad de cuentas categorizadas por división.</p>
+          </div>
+          <div class="header-actions">
+            <button onclick="document.getElementById('modal-add-cuenta').classList.add('active')" class="btn btn-secondary">
+              ➕ Agregar Cuenta
+            </button>
+            <button onclick="document.getElementById('modal-add-lote').classList.add('active')" class="btn btn-primary">
+              📦 Importar Lote
+            </button>
+          </div>
+        </header>
+
+        <div id="inventario-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;">
+          <!-- Dinámico -->
+        </div>
+      </section>
+
+      <!-- 4. RANKING VIEW (ADMIN & STAFF) -->
+      <section id="view-ranking" class="view-section" style="display:none;">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Leaderboard Staff & Bote Mensual</h1>
+            <p>Puntuación por divisiones completadas y acumulado para el ganador.</p>
+          </div>
+        </header>
+
+        <div class="card" style="margin-bottom: 24px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(17, 24, 39, 0.9)); border-color: rgba(245, 158, 11, 0.3);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div>
+              <span style="font-size: 12px; color: var(--gold); font-weight: 700; text-transform: uppercase;">Bote Acumulado del Mes</span>
+              <div style="font-size: 32px; font-weight: 800; color: #f8fafc;" id="ranking-bote-total">$0.00</div>
+            </div>
+            <div id="ranking-meta-badge" style="font-weight: 700; font-size: 13px;">
+              ⏳ En progreso (0/15)
+            </div>
+          </div>
+          <div style="background: rgba(255,255,255,0.05); height: 10px; border-radius: 5px; overflow: hidden;">
+            <div id="ranking-progress-bar" style="background: var(--gold); width: 0%; height: 100%; transition: width 0.5s ease;"></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Puesto</th>
+                  <th>Booster</th>
+                  <th>Pedidos Terminados</th>
+                  <th>High WR (🔥)</th>
+                  <th>Puntaje Total</th>
+                </tr>
+              </thead>
+              <tbody id="ranking-table-tbody">
+                <!-- Dinámico -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. FINANZAS & LIQUIDACIONES VIEW (ADMIN) -->
+      <section id="view-finanzas" class="view-section" style="display:none;">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Finanzas & Liquidaciones de Staff</h1>
+            <p>Control de saldos por pagar a boosters y caja en Binance.</p>
+          </div>
+          <div class="header-actions">
+            <button onclick="document.getElementById('modal-add-tx').classList.add('active')" class="btn btn-secondary">
+              🪙 Nuevo Movimiento Binance
+            </button>
+          </div>
+        </header>
+
+        <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 24px;">
+          <div class="card kpi-card" style="--accent-color: var(--cyan);">
+            <div class="kpi-header"><span>Total en Binance</span></div>
+            <div class="kpi-value" id="fin-binance-total">$0.00</div>
+          </div>
+          <div class="card kpi-card" style="--accent-color: var(--primary);">
+            <div class="kpi-header"><span>Saldo Neto Perez</span></div>
+            <div class="kpi-value" id="fin-neto-total">$0.00</div>
+          </div>
+          <div class="card kpi-card" style="--accent-color: var(--gold);">
+            <div class="kpi-header"><span>Reserva Bote Ranking</span></div>
+            <div class="kpi-value" id="fin-bote-total">$0.00</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); font-weight: 700; font-size: 15px;">
+              💸 Liquidaciones Pendientes por Booster
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Booster</th>
+                    <th>Pedidos</th>
+                    <th>Saldo Pendiente</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="saldos-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); font-weight: 700; font-size: 15px;">
+              📜 Últimos Movimientos en Binance
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Categoría</th>
+                    <th>Monto</th>
+                    <th>Nota</th>
+                  </tr>
+                </thead>
+                <tbody id="tx-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. BOOSTER PORTAL (BOOSTER ROLE) -->
+      <section id="view-booster-portal" class="view-section" style="display:none;">
+        <header class="page-header">
+          <div class="page-title">
+            <h1>Hola, <span id="booster-greeting-name" style="color: var(--primary);">Booster</span> 👋</h1>
+            <p>Tus cuentas asignadas, enlaces de OP.GG y saldo acumulado.</p>
+          </div>
+        </header>
+
+        <div class="card" style="margin-bottom: 24px; border-color: rgba(16, 185, 129, 0.3); background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(17, 24, 39, 0.9));">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <span style="font-size: 12px; color: var(--primary); font-weight: 700; text-transform: uppercase;">Tu Saldo Pendiente por Cobrar</span>
+              <div style="font-size: 32px; font-weight: 800;" id="booster-saldo-pendiente">$0.00</div>
+            </div>
+            <span style="font-size: 36px;">💰</span>
+          </div>
+        </div>
+
+        <h2 style="font-size: 18px; font-weight: 700; margin-bottom: 16px;">Tus Cuentas Asignadas</h2>
+        <div id="booster-pedidos-list">
+          <!-- Dinámico -->
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- =====================================================================
+       MODALS
+       ===================================================================== -->
+  
+  <!-- LOGIN MODAL -->
+  <div class="modal-backdrop" id="modal-login">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="display:flex; align-items:center; gap:8px;">⚡ Iniciar Sesión en PerezBoost Pro</h3>
+      </div>
+      <form id="form-login">
+        <div class="form-group">
+          <label>Usuario (Admin o Booster)</label>
+          <input type="text" id="login-username" class="input-field" style="width:100%;" placeholder="Ej: admin o tu nombre de booster" required />
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="login-password" class="input-field" style="width:100%;" placeholder="Contraseña" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+          Ingresar al Sistema
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- EDIT PEDIDO MODAL -->
+  <div class="modal-backdrop" id="modal-edit-pedido">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>✏️ Modificar Pedido</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="form-edit-pedido">
+        <input type="hidden" id="edit-pedido-id" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>Booster Asignado</label>
+            <input type="text" id="edit-booster-nombre" class="input-field" style="width:100%;" />
+          </div>
+          <div class="form-group">
+            <label>Estado del Pedido</label>
+            <select id="edit-estado" class="select-field" style="width:100%;">
+              <option value="En progreso">En progreso</option>
+              <option value="Terminado">Terminado</option>
+              <option value="Abandonado">Abandonado</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Elo Final</label>
+            <input type="text" id="edit-elo-final" class="input-field" style="width:100%;" />
+          </div>
+          <div class="form-group">
+            <label>Winrate (%)</label>
+            <input type="number" step="0.1" id="edit-wr" class="input-field" style="width:100%;" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Pago Cliente ($)</label>
+            <input type="number" step="0.1" id="edit-pago-cliente" class="input-field" style="width:100%;" />
+          </div>
+          <div class="form-group">
+            <label>Pago Booster ($)</label>
+            <input type="number" step="0.1" id="edit-pago-booster" class="input-field" style="width:100%;" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Enlace OP.GG</label>
+          <input type="url" id="edit-opgg" class="input-field" style="width:100%;" placeholder="https://www.op.gg/summoners/..." />
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+          💾 Guardar Cambios
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD CUENTA MODAL -->
+  <div class="modal-backdrop" id="modal-add-cuenta">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>➕ Agregar Cuenta al Inventario</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="form-add-cuenta">
+        <div class="form-group">
+          <label>Credenciales (usuario:contraseña)</label>
+          <input type="text" id="inv-user-pass" class="input-field" style="width:100%; font-family:monospace;" placeholder="ejemplo:pass123" required />
+        </div>
+        <div class="form-group">
+          <label>División / Tipo de Elo</label>
+          <input type="text" id="inv-elo" class="input-field" style="width:100%;" placeholder="Ej: Emerald/Plat o Diamante" required />
+        </div>
+        <div class="form-group">
+          <label>Descripción / Notas</label>
+          <input type="text" id="inv-desc" class="input-field" style="width:100%;" placeholder="FRESH" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+          Guardar Cuenta
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD LOTE MODAL -->
+  <div class="modal-backdrop" id="modal-add-lote">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📦 Importar Lote de Cuentas</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="form-add-lote">
+        <div class="form-group">
+          <label>División para todas las cuentas del lote</label>
+          <input type="text" id="lote-elo" class="input-field" style="width:100%;" placeholder="Ej: Emerald/Plat" required />
+        </div>
+        <div class="form-group">
+          <label>Pegar lista de cuentas (Una por línea en formato user:pass)</label>
+          <textarea id="lote-cuentas-raw" class="input-field" style="width:100%; height:120px; font-family:monospace;" placeholder="user1:pass1&#10;user2:pass2&#10;user3:pass3" required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+          Importar Lote
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD TX WALLET MODAL -->
+  <div class="modal-backdrop" id="modal-add-tx">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🪙 Nuevo Movimiento en Binance</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="form-add-tx">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo de Movimiento</label>
+            <select id="tx-tipo" class="select-field" style="width:100%;">
+              <option value="INGRESO">INGRESO (+)</option>
+              <option value="RETIRO">RETIRO (-)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Categoría</label>
+            <select id="tx-cat" class="select-field" style="width:100%;">
+              <option value="NETO">NETO PEREZ</option>
+              <option value="BOTE">BOTE RANKING</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Monto en USD ($)</label>
+          <input type="number" step="0.01" id="tx-monto" class="input-field" style="width:100%;" placeholder="0.00" required />
+        </div>
+        <div class="form-group">
+          <label>Descripción / Motivo</label>
+          <input type="text" id="tx-desc" class="input-field" style="width:100%;" placeholder="Ej: Depósito Binance P2P" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+          Registrar Transacción
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container"></div>
+
+  <!-- SCRIPTS -->
+  <script src="/js/api.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/pedidos.js"></script>
+  <script src="/js/inventario.js"></script>
+  <script src="/js/ranking.js"></script>
+  <script src="/js/finanzas.js"></script>
+  <script src="/js/booster_portal.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
